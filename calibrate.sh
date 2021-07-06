@@ -21,7 +21,7 @@ mkdir tmp
 cp -R "$1" $tmp_dir/camera_calibration_raw
 cp april_6x6_80x80cm.yaml $tmp_dir
 cp -R allan $tmp_dir/
-python3 ../vio_benchmark/convert/jsonl-to-kalibr.py $tmp_dir/camera_calibration_raw -output $tmp_dir/converted/
+python3 jsonl-to-kalibr.py $tmp_dir/camera_calibration_raw -output $tmp_dir/converted/
 DOCKER_RUN="docker run -v `pwd`/$tmp_dir:/kalibr -it stereolabs/kalibr:kinetic"
 $DOCKER_RUN kalibr_bagcreater --folder /kalibr/converted --output-bag /kalibr/data.bag
 set +e

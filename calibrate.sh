@@ -36,5 +36,5 @@ $DOCKER_RUN bash -c "cd kalibr && kalibr_calibrate_imu_camera --bag data.bag \
     --imu allan/imu.yaml  \
     --dont-show-report"
 set -e
-python ../stereo-vio-code/scripts/convert/kalibr-to-parameters.py $tmp_dir/camchain-imucam-data.yaml
+python kalibr-to-parameters.py $tmp_dir/camchain-imucam-data.yaml
 mv parameters.txt $tmp_dir/camera_calibration_raw/

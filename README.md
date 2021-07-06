@@ -1,5 +1,7 @@
 # Calibration scripts
 
+_For stereo-camera-IMU calibration using Kalibr_
+
 Usage: see `./calibrate.sh`.
 Outputs are written to the `tmp` subfolder (`parameters.txt` in `camera_calibration_raw`)
 

@@ -1,1 +1,1 @@
-docker build -t ghcr.io/spectacularai/depthai-library:1.0 .
+docker build -t ghcr.io/spectacularai/kalibr-conversion:1.0 .

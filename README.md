@@ -12,4 +12,4 @@ Outputs are written to the `tmp` subfolder (`parameters.txt` in `camera_calibrat
 
 ## Calibration target
 
-From [Kalibr](https://github.com/ethz-asl/kalibr/wiki/downloads), direct G-Drive link: https://drive.google.com/file/d/0B0T1sizOvRsUdjFJem9mQXdiMTQ/edit?usp=sharing
+From [Kalibr](https://github.com/ethz-asl/kalibr/wiki/downloads), direct link: https://github.com/ethz-asl/kalibr/files/8514447/april_6x6_80x80cm_A0.pdf

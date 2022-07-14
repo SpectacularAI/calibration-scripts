@@ -8,10 +8,11 @@ import json
 parser = argparse.ArgumentParser()
 parser.add_argument("yamlFile", help="Folder containing JSONL and video file")
 parser.add_argument("-output", help="Output folder, if not current directory")
+parser.add_argument("--imu_to_camera_matrix", default=None,
+	help='Optional IMU-to-camera matrix (for cam0), for example: [[1,0,0,0.1],[0,1,0,0.2],[0,0,1,0.3],[0,0,0,1]]')
 args = parser.parse_args()
 
-
-def parseCamera(results):
+def parseCamera(results, imuToCam0=None):
     coeffs = results["distortion_coeffs"]
     if results['distortion_model'] == 'equidistant':
         coeffs = coeffs[:4]
@@ -19,10 +20,22 @@ def parseCamera(results):
     else:
         # TODO: Ignores 4th coefficient
         coeffs = coeffs[:3]
+        # coeffs = coeffs[:4]
         distortionModel = "pinhole"
 
+    if 'T_cam_imu' in results:
+        imuToCam = results['T_cam_imu']
+    else:
+        assert(imuToCam0 is not None)
+        if 'T_cn_cnm1' in results:
+            import numpy as np
+            T = results['T_cn_cnm1']
+            imuToCam = np.dot(T, imuToCam0).tolist()
+        else:
+            imuToCam = imuToCam0
+
     return {
-        "imuToCamera": results["T_cam_imu"],
+        "imuToCamera": imuToCam,
         "imageWidth": results["resolution"][0],
         "imageHeight": results["resolution"][1],
         "distortionCoefficients": coeffs,
@@ -44,16 +57,17 @@ def main(args):
 
     with open(args.yamlFile) as f:
         calibrationResults = yaml.load(f, Loader=yaml.FullLoader)
-        outputDict["cameras"].append(parseCamera(calibrationResults["cam0"]))
+        imuToCam = args.imu_to_camera_matrix
+        if imuToCam is not None:
+            imuToCam = json.loads(imuToCam)
+        outputDict["cameras"].append(parseCamera(calibrationResults["cam0"], imuToCam))
         if calibrationResults.get("cam1"):
-            outputDict["cameras"].append(parseCamera(calibrationResults["cam1"]))
+            outputDict["cameras"].append(parseCamera(calibrationResults["cam1"], imuToCam))
 
     with open(outputFolder + "/calibration.json", "w") as f:
         outputString = json.dumps(outputDict, sort_keys=True, indent=4)
         print(outputString)
         f.write(outputString)
-
-    print("Done!")
 
 
 if __name__ == "__main__":

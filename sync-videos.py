@@ -151,8 +151,11 @@ if __name__ == '__main__':
         plt.show()
 
     def sync_command_ffmpeg(fn, skip_n_frames, out_fn=None):
-        if out_fn is None: out_fn = fn + '.resynced.mkv'
-        return "ffmpeg -i %s -vf 'select=gte(n\,%d)' %s %s" % (fn, skip_n_frames, args.ffmpeg_flags, out_fn)
+        if out_fn is None: out_fn = fn + '.resynced.' + fn.rpartition('.')[-1]
+        if skip_n_frames == 0:
+            return 'cp %s %s' % (fn, out_fn)
+        else:
+            return "ffmpeg -i %s -vf 'select=gte(n\,%d)' %s %s" % (fn, skip_n_frames, args.ffmpeg_flags, out_fn)
 
     skip1 = args.skip_first_n_frames + max(optimal_offset, 0)
     skip2 = args.skip_first_n_frames + max(-optimal_offset, 0)
@@ -163,7 +166,7 @@ if __name__ == '__main__':
     print(sync2)
 
     if not args.dry_run:
-        import json, os
+        import json, os, threading
         if args.leader_data_jsonl is not None:
             with open(args.leader_data_jsonl, 'rt') as f_in:
                 with open(args.leader_data_jsonl + '.synced.jsonl', 'wt') as f_out:
@@ -174,6 +177,11 @@ if __name__ == '__main__':
                             d['number'] -= skip1
                         f_out.write(json.dumps(d)+'\n')
 
-        os.system(sync1 + '; ' + sync2)
+        t1 = threading.Thread(target=lambda: os.system(sync1))
+        t2 = threading.Thread(target=lambda: os.system(sync2))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
 
     cv.destroyAllWindows()

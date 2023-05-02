@@ -92,7 +92,7 @@ def minimize_error(flow1, flow2, max_offset):
         # plt.show()
         # print(result_y[i])
 
-    offset = result_x[np.argmin(result_y)]
+    offset = int(result_x[np.argmin(result_y)])
     print(offset)
 
     return offset, (result_x, result_y), shift(offset)
@@ -102,13 +102,16 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser(__doc__)
     p.add_argument('leader_video')
     p.add_argument('follower_video')
+    p.add_argument('leader_data_jsonl', nargs='?')
     p.add_argument('--flow_winsize', type=int, default=15)
     p.add_argument('-skip', '--skip_first_n_frames', type=int, default=0, help='Skip first N frames')
     p.add_argument('--preview', action='store_true')
     p.add_argument('--no_plot', action='store_true')
+    p.add_argument('--ffmpeg_flags', default='-y -an -c:v libx264 -crf 18')
     p.add_argument('--resize_width', type=int, default=200)
     p.add_argument('--max_frames', type=int, default=1000)
     p.add_argument('--max_offset', type=int, default=100)
+    p.add_argument('--dry_run', action='store_true')
 
     args = p.parse_args()
     leader_flow = OpticalFlowComputer(args.leader_video, args)
@@ -136,7 +139,9 @@ if __name__ == '__main__':
         plt.legend()
         plt.show()
 
-        optimal_offset, (plot_x, plot_y), (opt1, opt2) = minimize_error(flow1, flow2, args.max_offset)
+    optimal_offset, (plot_x, plot_y), (opt1, opt2) = minimize_error(flow1, flow2, args.max_offset)
+
+    if not args.no_plot:
         plt.plot(plot_x, plot_y)
         plt.title('error by offset (optimum %d)' % optimal_offset)
         plt.show()
@@ -144,5 +149,31 @@ if __name__ == '__main__':
         plt.plot(np.mean(opt1, axis=1), label='leader, shifted')
         plt.plot(np.mean(opt2, axis=1), label='follower, shifted')
         plt.show()
+
+    def sync_command_ffmpeg(fn, skip_n_frames, out_fn=None):
+        if out_fn is None: out_fn = fn + '.resynced.mkv'
+        return "ffmpeg -i %s -vf 'select=gte(n\,%d)' %s %s" % (fn, skip_n_frames, args.ffmpeg_flags, out_fn)
+
+    skip1 = args.skip_first_n_frames + max(optimal_offset, 0)
+    skip2 = args.skip_first_n_frames + max(-optimal_offset, 0)
+
+    sync1 = sync_command_ffmpeg(args.leader_video, skip1)
+    sync2 = sync_command_ffmpeg(args.follower_video, skip2)
+    print(sync1)
+    print(sync2)
+
+    if not args.dry_run:
+        import json, os
+        if args.leader_data_jsonl is not None:
+            with open(args.leader_data_jsonl, 'rt') as f_in:
+                with open(args.leader_data_jsonl + '.synced.jsonl', 'wt') as f_out:
+                    for line in f_in:
+                        d = json.loads(line)
+                        if 'frames' in d:
+                            if d['number'] < skip1: continue
+                            d['number'] -= skip1
+                        f_out.write(json.dumps(d)+'\n')
+
+        os.system(sync1 + '; ' + sync2)
 
     cv.destroyAllWindows()

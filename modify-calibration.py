@@ -1,5 +1,7 @@
 """
 Modify Spectacular AI calibration JSON files
+
+Input JSON in read from stdin an output written to stdout
 """
 import numpy as np
 import json
@@ -29,21 +31,47 @@ def set_imu_to_camera_matrix(calibration, imu_to_cam, second_camera=False):
 
     return out
 
+def set_first_to_second_matrix(calibration, first_to_second, second_camera=False):
+    out = json.loads(json.dumps(calibration)) # deep copy
+    assert(len(out['cameras']) == 2)
+
+    itoc1, itoc2 = [
+        np.array(c['imuToCamera'])
+        for c in calibration['cameras']
+    ]
+    
+    if second_camera:
+        second_to_first = np.linalg.inv(first_to_second)
+        itoc1 = np.dot(second_to_first, itoc2)
+    else:
+        second_to_first = np.linalg.inv(first_to_second)
+        itoc2 = np.dot(first_to_second, itoc1)
+
+    out['cameras'][0]['imuToCamera'] = itoc1.tolist()
+    out['cameras'][1]['imuToCamera'] = itoc2.tolist()
+    return out
+
 if __name__ == '__main__':
     import argparse
     p = argparse.ArgumentParser(__doc__)
-    subs = p.add_subparsers()
+    p.add_argument('action', choices=['set_imu_to_camera', 'set_first_to_second'],
+                   help='set IMU to camera matrix or stereo extrinsic matrix, keeping the other intact')
 
-    set_imu_to_cam = subs.add_parser('set_imu_to_camera',
-        help='set IMU to camera matrix, keeping stereo camera calibration intact')
-    set_imu_to_cam.add_argument('imu_to_camera_matrix',
+    p.add_argument('matrix',
         help='for example: [[1,0,0,0.1],[0,1,0,0.2],[0,0,1,0.3],[0,0,0,1]]')
-    set_imu_to_cam.add_argument('--second', action='store_true',
-        help='the given IMU-to-cam matrix is for the second camera')
 
+    p.add_argument('--second', action='store_true',
+        help='the IMU-to-cam matrix (set or kept intact) concerns the second camera')
+    
     args = p.parse_args()
-    if hasattr(args, 'imu_to_camera_matrix'):
-        print(json.dumps(set_imu_to_camera_matrix(
-            json.load(sys.stdin),
-            json.loads(args.imu_to_camera_matrix),
-            args.second), indent=2))
+
+    calib_in = json.load(sys.stdin)
+    matrix = json.loads(args.matrix)
+
+    if args.action == 'set_imu_to_camera':
+        calib_out = set_imu_to_camera_matrix(calib_in, matrix, args.second)
+
+    elif args.action == 'set_first_to_second':
+        calib_out = set_first_to_second_matrix(calib_in, matrix, args.second)
+        
+    print(json.dumps(calib_out, indent=2))

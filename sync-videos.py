@@ -107,6 +107,7 @@ if __name__ == '__main__':
     p.add_argument('-skip', '--skip_first_n_frames', type=int, default=0, help='Skip first N frames')
     p.add_argument('--preview', action='store_true')
     p.add_argument('--no_plot', action='store_true')
+    p.add_argument('--flip_second_flow', action='store_true')
     p.add_argument('--ffmpeg_flags', default='-y -an -c:v libx264 -crf 18')
     p.add_argument('--resize_width', type=int, default=200)
     p.add_argument('--max_frames', type=int, default=1000)
@@ -124,6 +125,7 @@ if __name__ == '__main__':
         f1 = leader_flow.next_scalar_flow()
         f2 = follower_flow.next_scalar_flow()
         if f1 is None or f2 is None: break
+        if args.flip_second_flow: f2 = -f2
         flow1.append(list(f1))
         flow2.append(list(f2))
         leader_flow.show_preview('leader')

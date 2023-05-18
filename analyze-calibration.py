@@ -67,6 +67,10 @@ def getPitch(imuToCam, imuToWorld):
     camToWorldRot = np.dot(imuToWorld[:3, :3], imuToCam[:3, :3].transpose())
     return np.arcsin(camToWorldRot[2, 2])
 
+def getRoll(imuToCam, imuToWorld):
+    camToWorldRot = np.dot(imuToWorld[:3, :3], imuToCam[:3, :3].transpose())
+    return np.arcsin(camToWorldRot[0, 2])
+
 def analyze_calibration(calib, imuLeveled=True):
     cams = [np.array(c['imuToCamera']) for c in calib['cameras']]
     imuToWorld = getReferenceImuToWorld(cams[0], imuLeveled=imuLeveled)
@@ -82,6 +86,7 @@ def analyze_calibration(calib, imuLeveled=True):
 
     if imuLeveled:
         stats['pitchPerCameraInDegrees'] = [rad2deg(getPitch(c, imuToWorld)) for c in cams]
+        stats['rollPerCameraInDegrees'] = [rad2deg(getRoll(c, imuToWorld)) for c in cams]
 
     return stats
 

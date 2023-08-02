@@ -19,7 +19,7 @@ def set_imu_to_camera_matrix(calibration, imu_to_cam, second_camera=False):
 
         # imu -> second * first -> imu
         first_to_second = np.dot(itoc2, np.linalg.inv(itoc1))
-        
+
         if second_camera:
             second_to_first = np.linalg.inv(first_to_second)
             new_imu_to_cam_first = np.dot(second_to_first, np.array(imu_to_cam))
@@ -39,7 +39,7 @@ def set_first_to_second_matrix(calibration, first_to_second, second_camera=False
         np.array(c['imuToCamera'])
         for c in calibration['cameras']
     ]
-    
+
     if second_camera:
         second_to_first = np.linalg.inv(first_to_second)
         itoc1 = np.dot(second_to_first, itoc2)
@@ -58,20 +58,27 @@ if __name__ == '__main__':
                    help='set IMU to camera matrix or stereo extrinsic matrix, keeping the other intact')
 
     p.add_argument('matrix',
-        help='for example: [[1,0,0,0.1],[0,1,0,0.2],[0,0,1,0.3],[0,0,0,1]]')
+        help='for example: "[[1,0,0,0.1],[0,1,0,0.2],[0,0,1,0.3],[0,0,0,1]]", or "path/to/calibration.json"')
+    p.add_argument('--matrixIndexInCalibration', type=int, default=0, help='if args.matrix is path, use its imuToCamera field from this camera index as input')
 
     p.add_argument('--second', action='store_true',
         help='the IMU-to-cam matrix (set or kept intact) concerns the second camera')
-    
+
     args = p.parse_args()
 
+    try:
+        with open(args.matrix) as f:
+            calibration = json.load(f)
+            matrix = calibration["cameras"][args.matrixIndexInCalibration]["imuToCamera"]
+    except:
+        matrix = json.loads(args.matrix)
+
     calib_in = json.load(sys.stdin)
-    matrix = json.loads(args.matrix)
 
     if args.action == 'set_imu_to_camera':
         calib_out = set_imu_to_camera_matrix(calib_in, matrix, args.second)
 
     elif args.action == 'set_first_to_second':
         calib_out = set_first_to_second_matrix(calib_in, matrix, args.second)
-        
-    print(json.dumps(calib_out, indent=2))
+
+    print(json.dumps(calib_out, indent=4))

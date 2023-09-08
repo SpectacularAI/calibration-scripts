@@ -41,6 +41,14 @@ def read_imu1_to_imu2(filename):
             return np.array(data["imu1ToImu2"])
         raise KeyError("{} does not contain key 'imu1ToImu2'".format(filename))
 
+def write_output_jsonl(inputFilename, outputFilename, model, modelParams):
+    with open(inputFilename, 'r') as input, open(outputFilename, 'w') as output:
+        for line in input:
+            data = json.loads(line)
+            if "time" in data:
+                data["time"] = model(modelParams, data["time"])
+            output.write(json.dumps(data) + '\n')
+
 def compute_imu_frequency(timestamps):
     avgTimeDiff = (timestamps[-1] - timestamps[0]) / len(timestamps)
     return 1.0 / avgTimeDiff
@@ -100,6 +108,14 @@ def lag_to_time_offset(lag, timestamps1, timestamps2):
     timeOffset += timestamps2[0] - timestamps1[0]
     return timeOffset
 
+def linear_model(params, x):
+    a, b = params
+    return a * x + b
+
+def quadratic_model(params, x):
+    a, b, c = params
+    return a * x**2 + b * x + c
+
 def estimate_time_scale(dataImu1, dataImu2, stepSeconds):
     timestamps1 = dataImu1[:, 0]
     timestamps2 = dataImu2[:, 0]
@@ -147,14 +163,6 @@ def estimate_time_scale(dataImu1, dataImu2, stepSeconds):
     # Fit linear and quadratic models to estimate how time offset changes over time
     x = np.asarray(times)
     y = np.asarray(lag_to_time_offset(lags, timestamps1, timestamps2))
-
-    def linear_model(params, x):
-        a, b = params
-        return a * x + b
-
-    def quadratic_model(params, x):
-        a, b, c = params
-        return a * x**2 + b * x + c
 
     def objective_linear(params, x, y):
         return y - linear_model(params, x)
@@ -204,8 +212,10 @@ def estimate_time_scale(dataImu1, dataImu2, stepSeconds):
 
     # (linear) t_imu2 = a * t_imu1 + b + t_imu1 = (1 + a) * t_imu1 + b
     # (quadratic) t_imu2 = a * t_imu1^2 + b * t_imu1 + c + t_imu1 = a * t_imu1^2 + (1 + b) * t_imu1 + c
-    print('(linear) t_imu2 = {0} * t_imu1 + {1}'.format(1 + paramsLinear[0], paramsLinear[1]))
-    print('(quadratic) t_imu2 = {0} * t_imu1^2 + {1} * t_imu1 + {2}'.format(paramsQuadratic[0], 1 + paramsQuadratic[1], paramsQuadratic[2]))
+    paramsLinear[0] += 1
+    paramsQuadratic[1] += 1
+
+    return paramsLinear, paramsQuadratic
 
 # Resample the lower frequency IMU signal (the time sync code assumes that both signals have same frequency)
 def resample_IMU_data(dataImu1, dataImu2):
@@ -231,6 +241,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(__doc__)
     p.add_argument("imu1", help="Path to first data.jsonl")
     p.add_argument("imu2", help="Path to second data.jsonl")
+    p.add_argument("--output", help="Output directory (copy of imu1 data.jsonl with timestamps adjusted will be saved there)")
     p.add_argument("--axis", choices=['x', 'y', 'z'], default='x', help="Axis (x, y, or z)")
     p.add_argument("--accelerometer", help="Use accelerometer instead of gyroscape", action="store_true")
     p.add_argument("--timestamp_range", help="Compute the offset using subsample of the original data.jsonl. Format is start:end in seconds")
@@ -277,8 +288,18 @@ if __name__ == "__main__":
     dataImu1, dataImu2 = resample_IMU_data(dataImu1, dataImu2)
 
     if args.time_scale:
-        estimate_time_scale(dataImu1, dataImu2, args.step)
+        paramsLinear, paramsQuadratic = estimate_time_scale(dataImu1, dataImu2, args.step)
+        print('(linear) t_imu2 = {0} * t_imu1 + {1}'.format(paramsLinear[0], paramsLinear[1]))
+        print('(quadratic) t_imu2 = {0} * t_imu1^2 + {1} * t_imu1 + {2}'.format(paramsQuadratic[0], paramsQuadratic[1], paramsQuadratic[2]))
+        if args.output:
+            output = "{}/imu1_linear_data.jsonl".format(args.output)
+            write_output_jsonl(args.imu1, output, linear_model, paramsLinear)
+            output = "{}/imu1_quadratic_data.jsonl".format(args.output)
+            write_output_jsonl(args.imu1, output, quadratic_model, paramsQuadratic)
     else:
         lag = compute_lag_cross_correlation(dataImu1[:, 1], dataImu2[:, 1], True, 'full')
         timeOffset = lag_to_time_offset(lag, dataImu1[:, 0], dataImu2[:, 0])
         print('t_imu2 = t_imu1 + t_offset, where t_offset = {0}'.format(timeOffset))
+        if args.output:
+            output = "{}/imu1_offset_data.jsonl".format(args.output)
+            write_output_jsonl(args.imu1, output, linear_model, (1.0, timeOffset))

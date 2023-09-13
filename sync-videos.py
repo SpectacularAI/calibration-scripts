@@ -33,23 +33,22 @@ class OpticalFlowComputer:
             if frame is None: return None
             # print('frame %d' % frame_no)
             if self.frame_no <= args.skip_first_n_frames: continue
-            
+
             return self._convert_frame(frame)
 
     def _grab_frame(self):
         ret, frame = self.cap.read()
         if not ret: return None
         return frame
-    
+
     def _convert_frame(self, frame):
         frame = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-        if self.args.resize_width > 0:
-            h, w = frame.shape
+        if self.args.resize_width > 0 and self.args.resize_height > 0:
             w1 = self.args.resize_width
-            h1 = h * w1 // w
+            h1 = self.args.resize_height
             frame = cv.resize(frame, (w1, h1), interpolation=cv.INTER_AREA)
         return frame
-    
+
     def show_preview(self, wnd_tag=''):
         if not self.args.preview: return
 
@@ -58,7 +57,7 @@ class OpticalFlowComputer:
         if self.hsv is None:
             self.hsv = np.zeros((self.src.shape[0], self.src.shape[1], 3), dtype=self.src.dtype)
             self.hsv[..., 1] = 255
-        
+
         mag, ang = cv.cartToPolar(self.flow[..., 0], self.flow[..., 1])
         self.hsv[..., 0] = ang*180/np.pi/2
         self.hsv[..., 2] = cv.normalize(mag, None, 0, 255, cv.NORM_MINMAX)
@@ -67,7 +66,6 @@ class OpticalFlowComputer:
         cv.waitKey(1)
 
 def minimize_error(flow1, flow2, max_offset):
-
     result_x = np.zeros(max_offset*2+1, dtype=int)
     result_y = np.zeros(max_offset*2+1, dtype=float)
 
@@ -110,6 +108,7 @@ if __name__ == '__main__':
     p.add_argument('--flip_second_flow', action='store_true')
     p.add_argument('--ffmpeg_flags', default='-y -an -c:v libx264 -crf 18')
     p.add_argument('--resize_width', type=int, default=200)
+    p.add_argument('--resize_height', type=int, default=125)
     p.add_argument('--max_frames', type=int, default=1000)
     p.add_argument('--max_offset', type=int, default=100)
     p.add_argument('--dry_run', action='store_true')
@@ -119,7 +118,7 @@ if __name__ == '__main__':
     follower_flow = OpticalFlowComputer(args.follower_video, args)
 
     flow1 = []
-    flow2 = [] 
+    flow2 = []
 
     for i in range(args.max_frames):
         f1 = leader_flow.next_scalar_flow()
@@ -130,7 +129,7 @@ if __name__ == '__main__':
         flow2.append(list(f2))
         leader_flow.show_preview('leader')
         follower_flow.show_preview('follower')
-        
+
     flow1 = np.array(flow1)
     flow2 = np.array(flow2)
 

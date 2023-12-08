@@ -1,9 +1,13 @@
 """
 Plot video and gyroscope speed to help synchronizing them
 """
+
+import json
+import pathlib
+
 import cv2 as cv
 import numpy as np
-import json
+import matplotlib.pyplot as plt
 
 class OpticalFlowComputer:
     def __init__(self, fn, args):
@@ -115,14 +119,19 @@ def normalize_array(array):
 if __name__ == '__main__':
     import argparse
     p = argparse.ArgumentParser(__doc__)
-    p.add_argument('video')
-    p.add_argument('data')
+    p.add_argument('video', help="path to video file")
+    p.add_argument('data', help="path to data.jsonl file")
     p.add_argument('--flow_winsize', type=int, default=15)
     p.add_argument('--preview', action='store_true')
-    p.add_argument('--frameTimeOffsetSeconds', type=float, default=-0.1)
+    p.add_argument('--frameTimeOffsetSeconds', type=float, default=0)
     p.add_argument('--resize_width', type=int, default=200)
 
     args = p.parse_args()
+
+    if not pathlib.Path(args.data).exists():
+        raise Exception("Data file `{}` does not exist.".format(args.data))
+    if not pathlib.Path(args.video).exists():
+        raise Exception("Video file `{}` does not exist.".format(args.video))
 
     leader_flow = OpticalFlowComputer(args.video, args)
 
@@ -147,23 +156,22 @@ if __name__ == '__main__':
         frameSpeed.append(avg_speed)
         leader_flow.show_preview('leader')
 
-
     gyroSpeed = normalize_array(gyroSpeed)
     frameSpeed = normalize_array(frameSpeed)
 
-    import matplotlib.pyplot as plt
+    if args.frameTimeOffsetSeconds != 0:
+        _, subplots = plt.subplots(2)
+        subplots[0].plot(gyroTimes, gyroSpeed, label='Gyro speed')
+        subplots[0].plot(frameTimes, frameSpeed, label='Optical flow speed')
+        subplots[0].title.set_text("Normalized gyro speed vs. optical flow speed")
 
-    _, subplots = plt.subplots(2)
-
-
-    subplots[0].plot(gyroTimes, gyroSpeed, label='Gyro speed')
-    subplots[0].plot(frameTimes, frameSpeed, label='Optical flow speed')
-    subplots[0].title.set_text("Normalized gyro speed vs. optical flow speed")
-
-    frameTimes = np.array(frameTimes) + args.frameTimeOffsetSeconds
-
-    subplots[1].plot(gyroTimes, gyroSpeed, label='Gyro speed')
-    subplots[1].plot(frameTimes, frameSpeed, label=f'Optical flow speed')
-    subplots[1].title.set_text(f"Normalized gyro speed vs. optical flow speed with {args.frameTimeOffsetSeconds} seconds added to frame timetamps")
+        frameTimes = np.array(frameTimes) + args.frameTimeOffsetSeconds
+        subplots[1].plot(gyroTimes, gyroSpeed, label='Gyro speed')
+        subplots[1].plot(frameTimes, frameSpeed, label=f'Optical flow speed')
+        subplots[1].title.set_text(f"Normalized gyro speed vs. optical flow speed with {args.frameTimeOffsetSeconds} seconds added to frame timetamps")
+    else:
+        plt.plot(gyroTimes, gyroSpeed, label='Gyro speed')
+        plt.plot(frameTimes, frameSpeed, label='Optical flow speed')
+        plt.title("Normalized gyro speed vs. optical flow speed")
     plt.legend()
     plt.show()

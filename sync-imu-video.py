@@ -123,7 +123,7 @@ def normalize_array(array):
 
 
 def meanError(times, values, fn, fn_range, offset):
-    newTimes = times + offset
+    newTimes = times - offset
     startIdx = None
     endIdx = None
     for idx, t in enumerate(newTimes):

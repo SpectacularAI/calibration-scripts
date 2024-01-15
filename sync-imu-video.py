@@ -8,6 +8,10 @@ import pathlib
 import cv2 as cv
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy
+import math
+from scipy import interpolate
+
 
 class OpticalFlowComputer:
     def __init__(self, fn, args):
@@ -109,12 +113,44 @@ def slurpJson(dataJsonl):
             data.append(json.loads(line))
     return data
 
+
 def normalize_array(array):
     np_array = np.array(array)
     min_value = np.min(np_array)
     max_value = np.max(np_array)
     normalized_array = (np_array - min_value) / (max_value - min_value)
     return normalized_array
+
+
+def meanError(times, values, fn, fn_range, offset):
+    newTimes = times + offset
+    startIdx = None
+    endIdx = None
+    for idx, t in enumerate(newTimes):
+        if startIdx == None and t >= fn_range[0]:
+            startIdx = idx
+        if endIdx == None and t > fn_range[1]:
+            endIdx = idx
+            break
+    croppedTime = newTimes[startIdx:endIdx]
+    croppedValues = values[startIdx:endIdx]
+    if croppedTime.size < 2: return math.nan
+    try:
+        fnValues = fn(croppedTime)
+    except ValueError as e:
+        print(e)
+        return math.nan
+    return np.mean(np.abs(croppedValues - fnValues))
+
+
+def findMinimumError(gyro_time, gyro_angular_speed, fn, fn_range, offsets):
+    errors = []
+    for offset in offsets:
+        errors.append(meanError(gyro_time, gyro_angular_speed, fn, fn_range, offset))
+    errors = np.array(errors)
+    smallestIdx = np.nanargmin(errors)
+    return offsets, errors, offsets[smallestIdx], errors[smallestIdx]
+
 
 if __name__ == '__main__':
     import argparse
@@ -123,8 +159,12 @@ if __name__ == '__main__':
     p.add_argument('data', help="path to data.jsonl file")
     p.add_argument('--flow_winsize', type=int, default=15)
     p.add_argument('--preview', action='store_true')
-    p.add_argument('--frameTimeOffsetSeconds', type=float, default=0)
+    p.add_argument('--noPlot', action='store_true')
+    p.add_argument('--frameTimeOffsetSeconds', type=float)
     p.add_argument('--resize_width', type=int, default=200)
+    p.add_argument('--output', help="data.jsonl with frame timestamp shifted to match gyroscope timestamps")
+    p.add_argument('--maxOffset', help="Maximum offset between gyro and frame times in seconds", type=float, default=1.0)
+
 
     args = p.parse_args()
 
@@ -153,25 +193,64 @@ if __name__ == '__main__':
 
     for i in range(len(frameTimes)):
         avg_speed = leader_flow.next_avg_speed_flow()
+        if avg_speed == None:
+            avg_speed = 0.0
+            print(f"Failed to get speed for frame {i}")
         frameSpeed.append(avg_speed)
         leader_flow.show_preview('leader')
 
     gyroSpeed = normalize_array(gyroSpeed)
     frameSpeed = normalize_array(frameSpeed)
 
-    if args.frameTimeOffsetSeconds != 0:
-        _, subplots = plt.subplots(2)
+    # gyroSpeed = scipy.signal.medfilt(gyroSpeed, kernel_size=21)
+    # frameSpeed = scipy.signal.medfilt(frameSpeed, kernel_size=3)
+
+    testedOffsets = []
+    estimatedErrors = []
+
+    if args.frameTimeOffsetSeconds:
+        timeOffset = args.frameTimeOffsetSeconds
+    else:
+        fn = interpolate.interp1d(frameTimes, frameSpeed, assume_sorted=True)
+        fn_range = [frameTimes[0], frameTimes[-1]]
+
+        offset = 0
+        maxOffset = args.maxOffset
+        ITERATIONS=3
+        for i in range(ITERATIONS):
+            step = maxOffset * 2 / 100
+            offsets, errors, offset, error = findMinimumError(gyroTimes, gyroSpeed, fn, fn_range, np.arange(-maxOffset, maxOffset, step) + offset)
+            maxOffset /= 20
+            estimatedErrors.append(errors)
+            testedOffsets.append(offsets)
+        timeOffset = offset
+
+
+    if not args.noPlot:
+        _, subplots = plt.subplots(2 + len(estimatedErrors))
         subplots[0].plot(gyroTimes, gyroSpeed, label='Gyro speed')
         subplots[0].plot(frameTimes, frameSpeed, label='Optical flow speed')
         subplots[0].title.set_text("Normalized gyro speed vs. optical flow speed")
 
-        frameTimes = np.array(frameTimes) + args.frameTimeOffsetSeconds
+        frameTimes = np.array(frameTimes) + timeOffset
         subplots[1].plot(gyroTimes, gyroSpeed, label='Gyro speed')
         subplots[1].plot(frameTimes, frameSpeed, label=f'Optical flow speed')
-        subplots[1].title.set_text(f"Normalized gyro speed vs. optical flow speed with {args.frameTimeOffsetSeconds} seconds added to frame timetamps")
-    else:
-        plt.plot(gyroTimes, gyroSpeed, label='Gyro speed')
-        plt.plot(frameTimes, frameSpeed, label='Optical flow speed')
-        plt.title("Normalized gyro speed vs. optical flow speed")
-    plt.legend()
-    plt.show()
+        subplots[1].title.set_text(f"Normalized gyro speed vs. optical flow speed with {timeOffset} seconds added to frame timetamps")
+
+        for i in range(len(estimatedErrors)):
+            frameTimes = np.array(frameTimes) + timeOffset
+            subplots[2+i].plot(testedOffsets[i], estimatedErrors[i], label='Error as function of time offset')
+
+        plt.legend()
+        plt.show()
+
+    if args.output:
+        print(f"All frame timestmaps corrected with {timeOffset}")
+        for entry in data:
+            if "frames" in entry:
+                entry["time"] += timeOffset
+        data_sorted = sorted(data, key=lambda x: x.get("time", 0.0))
+        with open(args.output, "w") as f:
+            for entry in data_sorted:
+                f.write(json.dumps(entry) + "\n")
+

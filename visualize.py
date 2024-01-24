@@ -30,6 +30,28 @@ def plotDataset(folder, args):
     accelerometer = {"x": [], "y": [], "z": [], "t": [], "td": []}
     gyroscope = {"x": [], "y": [], "z": [], "t": [], "td": []}
     cameras = {}
+    systemMetrics = {}
+
+    def parseSystemMetrics(obj, time):
+        usedNames = {}
+        try:
+            def appendMetrics(name, time, value):
+                if not name in systemMetrics:
+                    systemMetrics[name] = { "cpu": [], "t": []}
+                systemMetrics[name]["cpu"].append(value)
+                systemMetrics[name]["t"].append(time)
+            for process in obj["systemMetrics"]["cpu"]["processes"]:
+                name = process["name"]
+                index = usedNames.get(name, 0)
+                nameWithIndex = f"{name}_{index}"
+                appendMetrics(nameWithIndex, time, process["usagePercent"])
+                usedNames[name] = index + 1
+            if "systemTotalUsagePercent" in obj["systemMetrics"]:
+                appendMetrics("TOTAL", time, obj["systemMetrics"]["systemTotalUsagePercent"])
+        except Exception as e:
+            print("failed to parse", obj)
+            raise e
+
 
     startTime = sys.maxsize
     with open(jsonlFile) as f:
@@ -56,6 +78,9 @@ def plotDataset(folder, args):
             if "time" in measurement:
                 if minTime == None or minTime > measurement.get("time"): minTime = measurement.get("time")
                 if maxTime == None or maxTime < measurement.get("time"): maxTime = measurement.get("time")
+
+            if "systemMetrics" in measurement:
+                parseSystemMetrics(measurement, measurement["time"] - timeOffset)
 
             if measurement.get("sensor") is not None:
                 measurementType = measurement["sensor"]["type"]
@@ -106,7 +131,10 @@ def plotDataset(folder, args):
         if "features" in c:
             camPlots += 1
 
-    fig, subplots = pyplot.subplots(9 + camPlots)
+
+    sysPlots = 1 if systemMetrics else 0
+
+    fig, subplots = pyplot.subplots(9 + camPlots + sysPlots)
     fig.subplots_adjust(hspace=.5)
     fig.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
 
@@ -148,6 +176,13 @@ def plotDataset(folder, args):
         print("gyroscope frequency:       {:.2f}Hz  (sample count {})".format(
           len(gyroscope["t"]) / (gyroscope["t"][-1] - gyroscope["t"][0]),
           len(gyroscope["t"])))
+
+    if systemMetrics:
+        idx = (9 + camPlots + sysPlots) - 1
+        subplots[idx].title.set_text("CPU usage")
+        for process in systemMetrics:
+            subplots[idx].plot(systemMetrics[process]["t"], systemMetrics[process]["cpu"], label=process)
+            subplots[idx].legend()
 
     pyplot.show()
 

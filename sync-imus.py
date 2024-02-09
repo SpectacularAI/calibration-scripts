@@ -237,12 +237,18 @@ def resample_IMU_data(dataImu1, dataImu2):
         imuValues1Resampled = np.interp(timestamps1Resampled, timestamps1, dataImu1[:, 1])
         return np.column_stack((timestamps1Resampled, imuValues1Resampled)), dataImu2
 
+def compute_angular_speeds(data):
+    timestamp = data[:, 0]  # Extract timestamps from the first column
+    angular_velocities = data[:, 1:]  # Extract angular velocities from columns 1, 2, and 3
+    angular_speeds = np.linalg.norm(angular_velocities, axis=1) # Compute angular speeds using numpy operations
+    return np.column_stack((timestamp, angular_speeds)) # Create array combining timestamp and angular speed
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser(__doc__)
     p.add_argument("imu1", help="Path to first data.jsonl")
     p.add_argument("imu2", help="Path to second data.jsonl")
     p.add_argument("--output", help="Output directory (copy of imu1 data.jsonl with timestamps adjusted will be saved there)")
-    p.add_argument("--axis", choices=['x', 'y', 'z'], default='x', help="Axis (x, y, or z)")
+    p.add_argument("--axis", choices=['x', 'y', 'z'], help="Angular velocity axis (x, y, or z), if not specified, angular speed is used instead of single axis")
     p.add_argument("--accelerometer", help="Use accelerometer instead of gyroscape", action="store_true")
     p.add_argument("--timestamp_range", help="Compute the offset using subsample of the original data.jsonl. Format is start:end in seconds")
     p.add_argument("--time_scale", help="Estimate time scale; Specifically, t_imu2 = t_imu1 * t_scale + t_offset", action="store_true")
@@ -276,15 +282,19 @@ if __name__ == "__main__":
     plt.subplots_adjust(hspace=0.3)
     plt.show()
 
-    if args.axis == 'x':
-        axis = 1
-    elif args.axis == 'y':
-        axis = 2
+    if args.axis:
+        if args.axis == 'x':
+            axis = 1
+        elif args.axis == 'y':
+            axis = 2
+        else:
+            axis = 3
+        dataImu1 = dataImu1[:, [0, axis]]
+        dataImu2 = dataImu2[:, [0, axis]]
     else:
-        axis = 3
+        dataImu1 = compute_angular_speeds(dataImu1)
+        dataImu2 = compute_angular_speeds(dataImu2)
 
-    dataImu1 = dataImu1[:, [0, axis]]
-    dataImu2 = dataImu2[:, [0, axis]]
     dataImu1, dataImu2 = resample_IMU_data(dataImu1, dataImu2)
 
     if args.time_scale:

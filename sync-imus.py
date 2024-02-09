@@ -13,7 +13,7 @@ import json
 import argparse
 from scipy import signal, optimize
 import numpy as np
-import matplotlib.pyplot as plt
+from pathlib import Path
 
 def read_imu_data(filename, timestampRange, sensor):
     if timestampRange:
@@ -54,6 +54,7 @@ def compute_imu_frequency(timestamps):
     return 1.0 / avgTimeDiff
 
 def plot_synchronized_signals(imu1, imu2, lag):
+    import matplotlib.pyplot as plt
     plt.plot(np.arange(0, len(imu1)) + lag, imu1, label='imu1')
     plt.plot(imu2, label='imu2')
     plt.xlabel('Timestamp')
@@ -62,13 +63,14 @@ def plot_synchronized_signals(imu1, imu2, lag):
     plt.legend()
     plt.show()
 
-def compute_lag_cross_correlation(imu1, imu2, plot, mode):
+def compute_lag_cross_correlation(imu1, imu2, show_plot, mode):
     crossCorr = signal.correlate(imu2, imu1, mode=mode)
     lags = signal.correlation_lags(len(imu2), len(imu1), mode=mode)
     lag = lags[np.argmax(crossCorr)] # best lag
 
-    if plot:
+    if show_plot:
         # Plot the cross-correlation
+        import matplotlib.pyplot as plt
         plt.plot(lags, crossCorr)
         plt.xlabel('Lag')
         plt.ylabel('Cross-Correlation')
@@ -99,7 +101,7 @@ def compute_lag_euclidian(imu1, imu2, minLag, maxLag, plot):
             minDistance = distance
             bestLag = lag
 
-    if plot: plot_synchronized_signals(imu1, imu2, bestLag)
+    if plot: plot_synchronized_signals(imu1, imu2, bestLag, plot)
 
     return bestLag + minLag
 
@@ -116,7 +118,7 @@ def quadratic_model(params, x):
     a, b, c = params
     return a * x**2 + b * x + c
 
-def estimate_time_scale(dataImu1, dataImu2, stepSeconds):
+def estimate_time_scale(dataImu1, dataImu2, stepSeconds, show_plot):
     timestamps1 = dataImu1[:, 0]
     timestamps2 = dataImu2[:, 0]
     imu1 = dataImu1[:, 1]
@@ -126,7 +128,7 @@ def estimate_time_scale(dataImu1, dataImu2, stepSeconds):
 
     # Compute rough time offset; should be pretty accurate even with long datasets.
     # t_imu2 = t_imu1 + lag_to_offset(estimateLag)
-    estimateLag = compute_lag_cross_correlation(imu1, imu2, True, 'full')
+    estimateLag = compute_lag_cross_correlation(imu1, imu2, show_plot, 'full')
 
     times = []
     lags = []
@@ -154,11 +156,13 @@ def estimate_time_scale(dataImu1, dataImu2, stepSeconds):
         lags.append(lag)
         times.append(timestamps1[idx1])
 
-    plt.plot(times, lags, linestyle='None', marker='.')
-    plt.ylabel('Lag (index)')
-    plt.xlabel('Time (seconds)')
-    plt.title('Time offset computed from {0} second sequences'.format(stepSeconds))
-    plt.show()
+    if show_plot:
+        import matplotlib.pyplot as plt
+        plt.plot(times, lags, linestyle='None', marker='.')
+        plt.ylabel('Lag (index)')
+        plt.xlabel('Time (seconds)')
+        plt.title('Time offset computed from {0} second sequences'.format(stepSeconds))
+        plt.show()
 
     # Fit linear and quadratic models to estimate how time offset changes over time
     x = np.asarray(times)
@@ -182,33 +186,34 @@ def estimate_time_scale(dataImu1, dataImu2, stepSeconds):
     quadratic_fit = quadratic_model(paramsQuadratic, x)
     rmseQuadratic = np.sqrt(np.mean((y - quadratic_fit)**2))
 
-    # Plot the original data and the fitted models
-    plt.scatter(x, y, label='Data')
-    plt.plot(x, linearFit, label=f'Linear Fit (RMSE={rmseLinear:.2f})', color='red')
-    plt.plot(x, quadratic_fit, label=f'Quadratic Fit (RMSE={rmseQuadratic:.2f})', color='green')
-    plt.xlabel('Time (seconds)')
-    plt.ylabel('Time offset (seconds)')
-    plt.title('Time offset over time fits with soft L1 loss')
-    plt.legend()
-    plt.show()
+    if show_plot:
+        # Plot the original data and the fitted models
+        plt.scatter(x, y, label='Data')
+        plt.plot(x, linearFit, label=f'Linear Fit (RMSE={rmseLinear:.2f})', color='red')
+        plt.plot(x, quadratic_fit, label=f'Quadratic Fit (RMSE={rmseQuadratic:.2f})', color='green')
+        plt.xlabel('Time (seconds)')
+        plt.ylabel('Time offset (seconds)')
+        plt.title('Time offset over time fits with soft L1 loss')
+        plt.legend()
+        plt.show()
 
-    timestamps1Linear = timestamps1 + linear_model(paramsLinear, timestamps1)
-    plt.plot(timestamps1Linear, imu1, label='imu1')
-    plt.plot(timestamps2, imu2, label='imu2')
-    plt.xlabel('Time (seconds)')
-    plt.ylabel('Imu value')
-    plt.title('Synchronized IMU Signals (linear model applied to imu1 timestamps)')
-    plt.legend()
-    plt.show()
+        timestamps1Linear = timestamps1 + linear_model(paramsLinear, timestamps1)
+        plt.plot(timestamps1Linear, imu1, label='imu1')
+        plt.plot(timestamps2, imu2, label='imu2')
+        plt.xlabel('Time (seconds)')
+        plt.ylabel('Imu value')
+        plt.title('Synchronized IMU Signals (linear model applied to imu1 timestamps)')
+        plt.legend()
+        plt.show()
 
-    timestamps1Quadratic = timestamps1 + quadratic_model(paramsQuadratic, timestamps1)
-    plt.plot(timestamps1Quadratic, imu1, label='imu1')
-    plt.plot(timestamps2, imu2, label='imu2')
-    plt.xlabel('Time (seconds)')
-    plt.ylabel('Imu value')
-    plt.title('Synchronized IMU Signals (quadratic model applied to imu1 timestamps)')
-    plt.legend()
-    plt.show()
+        timestamps1Quadratic = timestamps1 + quadratic_model(paramsQuadratic, timestamps1)
+        plt.plot(timestamps1Quadratic, imu1, label='imu1')
+        plt.plot(timestamps2, imu2, label='imu2')
+        plt.xlabel('Time (seconds)')
+        plt.ylabel('Imu value')
+        plt.title('Synchronized IMU Signals (quadratic model applied to imu1 timestamps)')
+        plt.legend()
+        plt.show()
 
     # (linear) t_imu2 = a * t_imu1 + b + t_imu1 = (1 + a) * t_imu1 + b
     # (quadratic) t_imu2 = a * t_imu1^2 + b * t_imu1 + c + t_imu1 = a * t_imu1^2 + (1 + b) * t_imu1 + c
@@ -237,18 +242,27 @@ def resample_IMU_data(dataImu1, dataImu2):
         imuValues1Resampled = np.interp(timestamps1Resampled, timestamps1, dataImu1[:, 1])
         return np.column_stack((timestamps1Resampled, imuValues1Resampled)), dataImu2
 
+def compute_angular_speeds(data):
+    timestamp = data[:, 0]  # Extract timestamps from the first column
+    angular_velocities = data[:, 1:]  # Extract angular velocities from columns 1, 2, and 3
+    angular_speeds = np.linalg.norm(angular_velocities, axis=1) # Compute angular speeds using numpy operations
+    return np.column_stack((timestamp, angular_speeds)) # Create array combining timestamp and angular speed
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser(__doc__)
-    p.add_argument("imu1", help="Path to first data.jsonl")
-    p.add_argument("imu2", help="Path to second data.jsonl")
+    p.add_argument("imu1", help="Path to first data.jsonl, data you wish to modify")
+    p.add_argument("imu2", help="Path to second data.jsonl, this is the reference")
     p.add_argument("--output", help="Output directory (copy of imu1 data.jsonl with timestamps adjusted will be saved there)")
-    p.add_argument("--axis", choices=['x', 'y', 'z'], default='x', help="Axis (x, y, or z)")
+    p.add_argument("--axis", choices=['x', 'y', 'z'], help="Angular velocity axis (x, y, or z), if not specified, angular speed is used instead of single axis")
     p.add_argument("--accelerometer", help="Use accelerometer instead of gyroscape", action="store_true")
     p.add_argument("--timestamp_range", help="Compute the offset using subsample of the original data.jsonl. Format is start:end in seconds")
     p.add_argument("--time_scale", help="Estimate time scale; Specifically, t_imu2 = t_imu1 * t_scale + t_offset", action="store_true")
     p.add_argument("--step", type=float, default=5.0, help="In time scale estimation, the dataset is divided into parts using this step (seconds)")
     p.add_argument("--imu1_to_imu2", help="Path to json file that contains 3x3 rotation matrix 'imu1ToImu2' to align the imu signals")
+    p.add_argument("--no_plot", help="Don't show any plots", action="store_true")
     args = p.parse_args()
+
+    show_plot = not args.no_plot
 
     sensor = "accelerometer" if args.accelerometer else "gyroscope"
     dataImu1 = read_imu_data(args.imu1, args.timestamp_range, sensor)
@@ -259,36 +273,44 @@ if __name__ == "__main__":
         dataImu1[:, 1:] = np.matmul(imu1ToImu2, dataImu1[:, 1:].T).T
 
     # Plot original data (with imu1 optionally rotated)
-    _, (ax1, ax2, ax3, ax4, ax5, ax6) = plt.subplots(nrows=6, ncols=1, sharex=True)
-    ax1.plot(dataImu1[:, 0] - dataImu1[0, 0], dataImu1[:, 1])
-    ax2.plot(dataImu1[:, 0] - dataImu1[0, 0], dataImu1[:, 2])
-    ax3.plot(dataImu1[:, 0] - dataImu1[0, 0], dataImu1[:, 3])
-    ax4.plot(dataImu2[:, 0] - dataImu2[0, 0], dataImu2[:, 1])
-    ax5.plot(dataImu2[:, 0] - dataImu2[0, 0], dataImu2[:, 2])
-    ax6.plot(dataImu2[:, 0] - dataImu2[0, 0], dataImu2[:, 3])
-    ax1.set_ylabel('{0} (1) x'.format(sensor))
-    ax2.set_ylabel('{0} (1) y'.format(sensor))
-    ax3.set_ylabel('{0} (1) z'.format(sensor))
-    ax4.set_ylabel('{0} (2) x'.format(sensor))
-    ax5.set_ylabel('{0} (2) y'.format(sensor))
-    ax6.set_ylabel('{0} (2) z'.format(sensor))
-    ax6.set_xlabel('Timestamp')
-    plt.subplots_adjust(hspace=0.3)
-    plt.show()
+    if show_plot:
+        import matplotlib.pyplot as plt
+        _, (ax1, ax2, ax3, ax4, ax5, ax6) = plt.subplots(nrows=6, ncols=1, sharex=True)
+        ax1.plot(dataImu1[:, 0] - dataImu1[0, 0], dataImu1[:, 1])
+        ax2.plot(dataImu1[:, 0] - dataImu1[0, 0], dataImu1[:, 2])
+        ax3.plot(dataImu1[:, 0] - dataImu1[0, 0], dataImu1[:, 3])
+        ax4.plot(dataImu2[:, 0] - dataImu2[0, 0], dataImu2[:, 1])
+        ax5.plot(dataImu2[:, 0] - dataImu2[0, 0], dataImu2[:, 2])
+        ax6.plot(dataImu2[:, 0] - dataImu2[0, 0], dataImu2[:, 3])
+        ax1.set_ylabel('{0} (1) x'.format(sensor))
+        ax2.set_ylabel('{0} (1) y'.format(sensor))
+        ax3.set_ylabel('{0} (1) z'.format(sensor))
+        ax4.set_ylabel('{0} (2) x'.format(sensor))
+        ax5.set_ylabel('{0} (2) y'.format(sensor))
+        ax6.set_ylabel('{0} (2) z'.format(sensor))
+        ax6.set_xlabel('Timestamp')
+        plt.subplots_adjust(hspace=0.3)
+        plt.show()
 
-    if args.axis == 'x':
-        axis = 1
-    elif args.axis == 'y':
-        axis = 2
+    if args.axis:
+        if args.axis == 'x':
+            axis = 1
+        elif args.axis == 'y':
+            axis = 2
+        else:
+            axis = 3
+        dataImu1 = dataImu1[:, [0, axis]]
+        dataImu2 = dataImu2[:, [0, axis]]
     else:
-        axis = 3
+        dataImu1 = compute_angular_speeds(dataImu1)
+        dataImu2 = compute_angular_speeds(dataImu2)
 
-    dataImu1 = dataImu1[:, [0, axis]]
-    dataImu2 = dataImu2[:, [0, axis]]
     dataImu1, dataImu2 = resample_IMU_data(dataImu1, dataImu2)
 
+    if args.output: Path(args.output).mkdir(exist_ok=True, parents=True)
+
     if args.time_scale:
-        paramsLinear, paramsQuadratic = estimate_time_scale(dataImu1, dataImu2, args.step)
+        paramsLinear, paramsQuadratic = estimate_time_scale(dataImu1, dataImu2, args.step, show_plot)
         print('(linear) t_imu2 = {0} * t_imu1 + {1}'.format(paramsLinear[0], paramsLinear[1]))
         print('(quadratic) t_imu2 = {0} * t_imu1^2 + {1} * t_imu1 + {2}'.format(paramsQuadratic[0], paramsQuadratic[1], paramsQuadratic[2]))
         if args.output:

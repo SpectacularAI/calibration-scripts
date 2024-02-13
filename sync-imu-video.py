@@ -244,8 +244,9 @@ if __name__ == '__main__':
         plt.legend()
         plt.show()
 
+    print("Estimated time offset: {:.4f}s".format(timeOffset))
     if args.output:
-        print(f"All frame timestmaps corrected with {timeOffset}")
+        print(f"All frame timestamps corrected in {args.output}")
         for entry in data:
             if "frames" in entry:
                 entry["time"] += timeOffset

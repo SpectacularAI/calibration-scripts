@@ -231,15 +231,18 @@ if __name__ == '__main__':
         subplots[0].plot(gyroTimes, gyroSpeed, label='Gyro speed')
         subplots[0].plot(frameTimes, frameSpeed, label='Optical flow speed')
         subplots[0].title.set_text("Normalized gyro speed vs. optical flow speed")
+        subplots[0].legend()
 
         frameTimes = np.array(frameTimes) + timeOffset
         subplots[1].plot(gyroTimes, gyroSpeed, label='Gyro speed')
         subplots[1].plot(frameTimes, frameSpeed, label=f'Optical flow speed')
         subplots[1].title.set_text(f"Normalized gyro speed vs. optical flow speed with {timeOffset} seconds added to frame timetamps")
+        subplots[1].legend()
 
         for i in range(len(estimatedErrors)):
             frameTimes = np.array(frameTimes) + timeOffset
             subplots[2+i].plot(testedOffsets[i], estimatedErrors[i], label='Error as function of time offset')
+            subplots[2+i].legend()
 
         plt.legend()
         plt.show()

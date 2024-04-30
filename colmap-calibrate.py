@@ -56,10 +56,11 @@ def calibrateVideo(args, videoPath, videoWorkPath):
     if databasePath.exists():
         print("Skipping feature extraction.")
     else:
+        print("Running feature extraction.")
         cmd = f"{env} colmap feature_extractor --database_path {databasePath}"
-        cmd += f" --images_path {imagesPath}"
+        cmd += f" --image_path {imagesPath}"
         cmd += " --ImageReader.single_camera 1"
-        cmd += " --ImageReader.camera_model {args.model.upper()}"
+        cmd += f" --ImageReader.camera_model {args.model.upper()}"
         err = runWithLogging(cmd, "colmap-feature-extractor", videoWorkPath)
         if err is not None: return err
 
@@ -68,6 +69,7 @@ def calibrateVideo(args, videoPath, videoWorkPath):
     if matchingDonePath.exists():
         print("Skipping feature matching.")
     else:
+        print("Running feature matching.")
         cmd = f"{env} colmap {matchingMethod} --database_path {databasePath}"
         err = runWithLogging(cmd, "colmap-matching", videoWorkPath)
         if err is not None: return err
@@ -78,8 +80,9 @@ def calibrateVideo(args, videoPath, videoWorkPath):
     if mapperPath.exists():
         print("Skipping mapping.")
     else:
+        print("Running mapping.")
         cmd = f"{env} colmap mapper --database_path {databasePath}"
-        cmd += f" --images_path {imagesPath}"
+        cmd += f" --image_path {imagesPath}"
         cmd += f" --output_path {mapperPath}"
         cmd += " --Mapper.ba_global_function_tolerance=1e-6"
         err = runWithLogging(cmd, "colmap-mapper", videoWorkPath)

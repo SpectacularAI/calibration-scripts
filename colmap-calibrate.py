@@ -102,10 +102,9 @@ def calibrateVideo(args, videoPath, videoWorkPath):
     return None
 
 def main(args):
-    # TODO Enable.
-    # if not shutil.which("colmap"):
-    #     print("Could not find `colmap`. Install COLMAP and setup paths so that the commandline tool works.")
-    #     return
+    if not shutil.which("colmap"):
+        print("Could not find `colmap`. Install COLMAP and setup paths so that the commandline tool works.")
+        return
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         print("Could not find `ffmpeg`/`ffprobe`. Install FFmpeg and setup paths so that the commandline tool works.")
         return
@@ -117,9 +116,8 @@ def main(args):
 
     calibrationPath = args.datasetPath / "colmap-calibration"
     if not args.dirty and calibrationPath.exists():
-        # TODO Enable.
-        # print(f"Folder {calibrationPath} exists. It will be removed. Continue? [y/N]")
-        # if input().lower() != "y": return
+        print(f"Folder {calibrationPath} exists. It will be removed. Continue? [y/N]")
+        if input().lower() != "y": return
         shutil.rmtree(calibrationPath)
 
     workPath = calibrationPath / "work"

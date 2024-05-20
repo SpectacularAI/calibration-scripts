@@ -2,6 +2,7 @@
 
 """Use COLMAP to calibrate a Spectacular AI SDK recording. Also requires FFmpeg."""
 
+import json
 import os
 import pathlib
 import re
@@ -61,8 +62,7 @@ def calibrateVideo(args, videoPath, videoWorkPath):
         cmd += f" --image_path {imagesPath}"
         cmd += " --ImageReader.single_camera 1"
         cmd += f" --ImageReader.camera_model {args.model.upper()}"
-        err = runWithLogging(cmd, "colmap-feature-extractor", videoWorkPath)
-        if err is not None: return err
+        runWithLogging(cmd, "colmap-feature-extractor", videoWorkPath)
 
     matchingMethod = "sequential_matcher" # "vocab_tree_matcher" might be better.
     matchingDonePath = videoWorkPath / "matching_done"
@@ -71,8 +71,7 @@ def calibrateVideo(args, videoPath, videoWorkPath):
     else:
         print("Running feature matching.")
         cmd = f"{env} colmap {matchingMethod} --database_path {databasePath}"
-        err = runWithLogging(cmd, "colmap-matching", videoWorkPath)
-        if err is not None: return err
+        runWithLogging(cmd, "colmap-matching", videoWorkPath)
         with open(matchingDonePath, "w") as f:
             f.write(matchingMethod)
 
@@ -81,22 +80,21 @@ def calibrateVideo(args, videoPath, videoWorkPath):
         print("Skipping mapping.")
     else:
         print("Running mapping.")
+        mapperPath.mkdir(parents=True, exist_ok=True)
         cmd = f"{env} colmap mapper --database_path {databasePath}"
         cmd += f" --image_path {imagesPath}"
         cmd += f" --output_path {mapperPath}"
-        cmd += " --Mapper.ba_global_function_tolerance=1e-6"
-        err = runWithLogging(cmd, "colmap-mapper", videoWorkPath)
-        if err is not None: return err
+        cmd += f" {args.mapperParameters}"
+        runWithLogging(cmd, "colmap-mapper", videoWorkPath)
 
     # Never skip this phase.
     print("Converting outputs to text format.")
     textModelPath = videoWorkPath / "text-model"
-    textModelPath .mkdir(parents=True, exist_ok=True)
+    textModelPath.mkdir(parents=True, exist_ok=True)
     cmd = f"{env} colmap model_converter --output_type TXT"
     cmd += f" --input_path \"{mapperPath}/0\""
     cmd += f" --output_path \"{textModelPath}\""
-    err = runWithLogging(cmd, "colmap-model-converter", videoWorkPath)
-    if err is not None: return err
+    runWithLogging(cmd, "colmap-model-converter", videoWorkPath)
 
     print("Video ok.")
     return None
@@ -113,6 +111,7 @@ def main(args):
     if len(videoPaths) == 0:
         print("No video files found.")
         return
+    videoPaths.sort()
 
     calibrationPath = args.datasetPath / "colmap-calibration"
     if not args.dirty and calibrationPath.exists():
@@ -137,7 +136,33 @@ def main(args):
             print(err)
             return
 
-    # TODO Convert to Spectacular AI calibration.json format.
+    # Convert to Spectacular AI calibration.json format.
+    calibration = { "cameras": [] }
+    for videoPath in videoPaths:
+        videoInd = getVideoInd(videoPath)
+        videoWorkPath = workPath / f"data{videoInd}"
+        cameraPath = videoWorkPath / "text-model" / "cameras.txt"
+        with open(cameraPath) as f:
+            for line in f:
+                if line.startswith("#"): continue
+                tokens = line.split(" ")
+                break
+        # <https://colmap.github.io/cameras.html>
+        assert(tokens[1] == "RADIAL") # TODO Check how the tokens change for other models.
+        calibration["cameras"].append({
+            "imageWidth": int(tokens[2]),
+            "imageHeight": int(tokens[3]),
+            "focalLengthX": float(tokens[4]),
+            "focalLengthY": float(tokens[4]),
+            "principalPointX": float(tokens[5]),
+            "principalPointY": float(tokens[6]),
+            "model": "pinhole",
+            "distortionCoefficients": [float(tokens[7]), float(tokens[8]), 0.],
+            # TODO imuToCamera
+        })
+
+    with open(calibrationPath / "calibration.json", "w") as f:
+        f.write(json.dumps(calibration, indent=4))
 
     print("Finished successfully.")
     # TODO Enable.
@@ -151,5 +176,6 @@ if __name__ == "__main__":
     p.add_argument("--frameCount", type=int, default=300, help="Target number of frames per video. Smaller is faster but may cause the calibration to fail.")
     p.add_argument("--model", default="radial", help="COLMAP camera model to use.")
     p.add_argument("--dirty", action="store_true", help="Use existing intermediary outputs when found. (Not recommended)")
+    p.add_argument("--mapperParameters", default="--Mapper.ba_global_function_tolerance=1e-6", help="COLMAP mapper parameters")
     args = p.parse_args()
     main(args)

@@ -44,7 +44,7 @@ def calibrateVideo(args, videoPath, videoWorkPath):
         subsample = int(n / args.frameCount)
         if subsample == 0: subsample = 1
         imagesPath.mkdir(parents=True, exist_ok=True)
-        cmd = f"ffmpeg -i {videoPath} -vf \"select=not(mod(n\\,{subsample}))\" -fps_mode vfr {imagesPath}/%08d.png"
+        cmd = f"ffmpeg -i {videoPath} -vf \"select=not(mod(n\\,{subsample}))\" -vsync 0 {imagesPath}/%08d.png"
 
         print("Converting video to images ({} frames).".format(int(n / subsample)))
         runWithLogging(cmd, "ffmpeg", videoWorkPath)

@@ -319,7 +319,7 @@ if __name__ == "__main__":
             output = "{}/imu1_quadratic_data.jsonl".format(args.output)
             write_output_jsonl(args.imu1, output, quadratic_model, paramsQuadratic)
     else:
-        lag = compute_lag_cross_correlation(dataImu1[:, 1], dataImu2[:, 1], True, 'full')
+        lag = compute_lag_cross_correlation(dataImu1[:, 1], dataImu2[:, 1], show_plot, 'full')
         timeOffset = lag_to_time_offset(lag, dataImu1[:, 0], dataImu2[:, 0])
         print('t_imu2 = t_imu1 + t_offset, where t_offset = {0}'.format(timeOffset))
         if args.output:

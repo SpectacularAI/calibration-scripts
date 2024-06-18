@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+#
+# For sensible running speed, you need the GPU (CUDA) support enabled in COLMAP.
+#
+# Usage:
+#   * Install COLMAP and FFmpeg. Then run:
+#   python colmap-calibrate.py path/to/recording-folder
+#
+#   * You may need to tweak `--mapperParameters` for best results / faster convergence.
 
 """Use COLMAP to calibrate a Spectacular AI SDK recording. Also requires FFmpeg."""
 
@@ -147,8 +155,10 @@ def main(args):
                 if line.startswith("#"): continue
                 tokens = line.split(" ")
                 break
+        # TODO Support other camera models.
         # <https://colmap.github.io/cameras.html>
         assert(tokens[1] == "RADIAL") # TODO Check how the tokens change for other models.
+
         calibration["cameras"].append({
             "imageWidth": int(tokens[2]),
             "imageHeight": int(tokens[3]),
@@ -158,16 +168,15 @@ def main(args):
             "principalPointY": float(tokens[6]),
             "model": "pinhole",
             "distortionCoefficients": [float(tokens[7]), float(tokens[8]), 0.],
-            # TODO imuToCamera
+            # TODO Add option to copy imuToCamera from an existing calibration.
         })
 
     with open(calibrationPath / "calibration.json", "w") as f:
         f.write(json.dumps(calibration, indent=4))
 
     print("Finished successfully.")
-    # TODO Enable.
-    # print("Remove work directory? [y/N]")
-    # if input().lower() == "y": shutil.rmtree(workPath)
+    print("Remove work directory? [y/N]")
+    if input().lower() == "y": shutil.rmtree(workPath)
 
 if __name__ == "__main__":
     import argparse

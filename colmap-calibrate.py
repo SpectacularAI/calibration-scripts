@@ -157,19 +157,31 @@ def main(args):
                 break
         # TODO Support other camera models.
         # <https://colmap.github.io/cameras.html>
-        assert(tokens[1] == "RADIAL") # TODO Check how the tokens change for other models.
-
-        calibration["cameras"].append({
-            "imageWidth": int(tokens[2]),
-            "imageHeight": int(tokens[3]),
-            "focalLengthX": float(tokens[4]),
-            "focalLengthY": float(tokens[4]),
-            "principalPointX": float(tokens[5]),
-            "principalPointY": float(tokens[6]),
-            "model": "pinhole",
-            "distortionCoefficients": [float(tokens[7]), float(tokens[8]), 0.],
-            # TODO Add option to copy imuToCamera from an existing calibration.
-        })
+        if tokens[1] == "RADIAL":
+            calibration["cameras"].append({
+                "imageWidth": int(tokens[2]),
+                "imageHeight": int(tokens[3]),
+                "focalLengthX": float(tokens[4]), # Note that focal length x and y are not separate.
+                "focalLengthY": float(tokens[4]),
+                "principalPointX": float(tokens[5]),
+                "principalPointY": float(tokens[6]),
+                "model": "pinhole",
+                "distortionCoefficients": [float(tokens[7]), float(tokens[8]), 0.],
+            })
+        elif tokens[1] == "OPENCV_FISHEYE":
+            calibration["cameras"].append({
+                "imageWidth": int(tokens[2]),
+                "imageHeight": int(tokens[3]),
+                "focalLengthX": float(tokens[4]),
+                "focalLengthY": float(tokens[5]),
+                "principalPointX": float(tokens[6]),
+                "principalPointY": float(tokens[7]),
+                "model": "kannala-brandt4",
+                "distortionCoefficients": [float(tokens[8]), float(tokens[9]), float(tokens[10]), float(tokens[11]) ],
+            })
+        else:
+            print("Unsupported conversion, raw output:", tokens)
+        # TODO Add option to copy imuToCamera from an existing calibration.
 
     with open(calibrationPath / "calibration.json", "w") as f:
         f.write(json.dumps(calibration, indent=4))

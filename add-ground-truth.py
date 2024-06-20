@@ -45,7 +45,7 @@ def computeGroundTruth(args):
         return poseJson
 
     def isAlreadyRectified(input_dir):
-        vioConfigYaml = f"{input_dir}/vio_config.yaml"
+        vioConfigYaml = os.path.join(input_dir, "vio_config.yaml")
         if os.path.exists(vioConfigYaml):
             with open(vioConfigYaml) as file:
                 for line in file:
@@ -80,14 +80,14 @@ def computeGroundTruth(args):
 
     def parseInputDir(input_dir):
         device = None
-        metadataJson = f"{input_dir}/metadata.json"
+        metadataJson = os.path.join(input_dir, "metadata.json")
         if os.path.exists(metadataJson):
             with open(metadataJson) as f:
                 metadata = json.load(f)
                 if metadata.get("platform") == "ios":
                     device = "ios-tof"
         if device == None:
-            vioConfigYaml = f"{input_dir}/vio_config.yaml"
+            vioConfigYaml = os.path.join(input_dir, "vio_config.yaml")
             if os.path.exists(vioConfigYaml):
                 with open(vioConfigYaml) as file:
                     supported = ['oak-d', 'k4a', 'realsense', 'orbbec-astra2', 'orbbec-femto', 'android', 'android-tof']

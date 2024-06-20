@@ -10,7 +10,6 @@ Requirements: numpy, scipy and matplotlib
 """
 
 import json
-import argparse
 from scipy import signal, optimize
 import numpy as np
 from pathlib import Path
@@ -248,20 +247,23 @@ def compute_angular_speeds(data):
     angular_speeds = np.linalg.norm(angular_velocities, axis=1) # Compute angular speeds using numpy operations
     return np.column_stack((timestamp, angular_speeds)) # Create array combining timestamp and angular speed
 
-if __name__ == "__main__":
-    p = argparse.ArgumentParser(__doc__)
-    p.add_argument("imu1", help="Path to first data.jsonl, data you wish to modify")
-    p.add_argument("imu2", help="Path to second data.jsonl, this is the reference")
-    p.add_argument("--output", help="Output directory (copy of imu1 data.jsonl with timestamps adjusted will be saved there)")
-    p.add_argument("--axis", choices=['x', 'y', 'z'], help="Angular velocity axis (x, y, or z), if not specified, angular speed is used instead of single axis")
-    p.add_argument("--accelerometer", help="Use accelerometer instead of gyroscape", action="store_true")
-    p.add_argument("--timestamp_range", help="Compute the offset using subsample of the original data.jsonl. Format is start:end in seconds")
-    p.add_argument("--time_scale", help="Estimate time scale; Specifically, t_imu2 = t_imu1 * t_scale + t_offset", action="store_true")
-    p.add_argument("--step", type=float, default=5.0, help="In time scale estimation, the dataset is divided into parts using this step (seconds)")
-    p.add_argument("--imu1_to_imu2", help="Path to json file that contains 3x3 rotation matrix 'imu1ToImu2' to align the imu signals")
-    p.add_argument("--no_plot", help="Don't show any plots", action="store_true")
-    args = p.parse_args()
+def synchronizeImus():
+    def parseArgs():
+        import argparse
+        p = argparse.ArgumentParser(__doc__)
+        p.add_argument("imu1", help="Path to first data.jsonl, data you wish to modify")
+        p.add_argument("imu2", help="Path to second data.jsonl, this is the reference")
+        p.add_argument("--output", help="Output directory (copy of imu1 data.jsonl with timestamps adjusted will be saved there)")
+        p.add_argument("--axis", choices=['x', 'y', 'z'], help="Angular velocity axis (x, y, or z), if not specified, angular speed is used instead of single axis")
+        p.add_argument("--accelerometer", help="Use accelerometer instead of gyroscape", action="store_true")
+        p.add_argument("--timestamp_range", help="Compute the offset using subsample of the original data.jsonl. Format is start:end in seconds")
+        p.add_argument("--time_scale", help="Estimate time scale; Specifically, t_imu2 = t_imu1 * t_scale + t_offset", action="store_true")
+        p.add_argument("--step", type=float, default=5.0, help="In time scale estimation, the dataset is divided into parts using this step (seconds)")
+        p.add_argument("--imu1_to_imu2", help="Path to json file that contains 3x3 rotation matrix 'imu1ToImu2' to align the imu signals")
+        p.add_argument("--no_plot", help="Don't show any plots", action="store_true")
+        return p.parse_args()
 
+    args = parseArgs()
     show_plot = not args.no_plot
 
     sensor = "accelerometer" if args.accelerometer else "gyroscope"
@@ -318,6 +320,7 @@ if __name__ == "__main__":
             write_output_jsonl(args.imu1, output, linear_model, paramsLinear)
             output = "{}/imu1_quadratic_data.jsonl".format(args.output)
             write_output_jsonl(args.imu1, output, quadratic_model, paramsQuadratic)
+        return paramsLinear, paramsQuadratic
     else:
         lag = compute_lag_cross_correlation(dataImu1[:, 1], dataImu2[:, 1], show_plot, 'full')
         timeOffset = lag_to_time_offset(lag, dataImu1[:, 0], dataImu2[:, 0])
@@ -325,3 +328,7 @@ if __name__ == "__main__":
         if args.output:
             output = "{}/imu1_offset_data.jsonl".format(args.output)
             write_output_jsonl(args.imu1, output, linear_model, (1.0, timeOffset))
+        return timeOffset
+
+if __name__ == "__main__":
+    synchronizeImus()

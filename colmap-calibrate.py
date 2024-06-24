@@ -164,8 +164,7 @@ def main(args):
                 if line.startswith("#"): continue
                 tokens = line.split(" ")
                 break
-        # TODO Support other camera models.
-        # <https://colmap.github.io/cameras.html>
+
         if tokens[1] == "RADIAL":
             calibration["cameras"].append({
                 "imageWidth": int(tokens[2]),
@@ -176,6 +175,18 @@ def main(args):
                 "principalPointY": float(tokens[6]),
                 "model": "pinhole",
                 "distortionCoefficients": [float(tokens[7]), float(tokens[8]), 0.],
+            })
+        elif tokens[1] == "OPENCV":
+            print("tokens", tokens)
+            calibration["cameras"].append({
+                "imageWidth": int(tokens[2]),
+                "imageHeight": int(tokens[3]),
+                "focalLengthX": float(tokens[4]),
+                "focalLengthY": float(tokens[5]),
+                "principalPointX": float(tokens[6]),
+                "principalPointY": float(tokens[7]),
+                "model": "pinhole",
+                "distortionCoefficients": [float(tokens[8]), float(tokens[9]), 0.],
             })
         elif tokens[1] == "OPENCV_FISHEYE":
             calibration["cameras"].append({
@@ -204,7 +215,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(__doc__)
     p.add_argument("datasetPath", type=pathlib.Path, help="Recording folder with data.jsonl and video files.")
     p.add_argument("--frameCount", type=int, default=300, help="Target number of frames per video. Smaller is faster but may cause the calibration to fail.")
-    p.add_argument("--model", default="radial", help="COLMAP camera model to use.")
+    p.add_argument("--model", default="opencv", help="COLMAP camera model to use.")
     p.add_argument("--dirty", action="store_true", help="Use existing intermediary outputs when found. (Not recommended)")
     p.add_argument("--mapperParameters", default="--Mapper.ba_global_function_tolerance=1e-6", help="COLMAP mapper parameters")
     args = p.parse_args()

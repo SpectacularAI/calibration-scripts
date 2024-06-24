@@ -95,6 +95,15 @@ def calibrateVideo(args, videoPath, videoWorkPath):
         cmd += f" {args.mapperParameters}"
         runWithLogging(cmd, "colmap-mapper", videoWorkPath)
 
+        # The principal point in all camera models is by default the exact middle of the image,
+        # and COLMAP documentation says estimating it "unstable" (although there is an option to do so).
+        print("Refining principal points.")
+        cmd = f"{env} colmap bundle_adjuster"
+        cmd += f" --input_path {mapperPath}/0"
+        cmd += f" --output_path {mapperPath}/0"
+        cmd += " --BundleAdjustment.refine_principal_point 1"
+        runWithLogging(cmd, "colmap-ba-principal-point-refinement", videoWorkPath)
+
     # Never skip this phase.
     print("Converting outputs to text format.")
     textModelPath = videoWorkPath / "text-model"

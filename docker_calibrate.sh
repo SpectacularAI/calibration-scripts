@@ -12,7 +12,7 @@
 set -eu -o pipefail
 
 RECORDING="$1"
-CAM_MODEL=pinhole-radtan
+: "${CAM_MODEL:=pinhole-radtan}"
 # CAM_MODEL=pinhole-equi # Kannala-Brandt 4
 tmp_dir=tmp
 DOCKER_KALIBR_RUN="docker run --rm -v `pwd`/$tmp_dir:/kalibr -it stereolabs/kalibr:kinetic"

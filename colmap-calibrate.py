@@ -35,8 +35,10 @@ def runWithLogging(cmd, name, path):
     process = subprocess.run(cmd, shell=True, capture_output=True)
     with open(path / f"{name}-stderr", "w") as f:
         err = process.stderr.decode('utf-8').strip()
+        f.write(f"{cmd}\n---\n")
         f.write(err)
     with open(path / f"{name}-stdout", "w") as f:
+        f.write(f"{cmd}\n---\n")
         f.write(process.stdout.decode('utf-8').strip())
     if err == "": return None
     return err

@@ -30,16 +30,23 @@ def parseResults(results, names):
     output.append("{} {}".format(names["pX"], intrinsics[2]))
     output.append("{} {}".format(names["pY"], intrinsics[3]))
 
+    # see https://github.com/ethz-asl/kalibr/wiki/supported-models
+    # and https://spectacularai.github.io/docs/pdf/calibration_manual.pdf
+
     coeffs = results["distortion_coeffs"]
-    if results['distortion_model'] == 'equidistant':
-        coeffs = coeffs[:4]
+    model = results['distortion_model']
+    if model == 'equidistant':
+        assert(len(coeffs) == 4)
+        our_model = 'kannala-brandt4'
+    elif mode == 'radtan':
+        k1, k2, p1, p2 = coeffs
+        coeffs = [k1, k2, p1, p2, 0, 0, 0, 0]
+        our_model = 'brown-conrady'
     else:
-        # TODO: Ignores 4th coefficient
-        coeffs = coeffs[:3]
+        raise RuntimeError('unsupported model %s' % model)
     output.append("{} {}".format(names["coeffs"], arrayToString(coeffs)))
-
+    output.append("{} {}".format('model', our_model)
     return output
-
 
 def main(args):
     outputFolder = args.output if args.output else "."

@@ -13,15 +13,20 @@ parser.add_argument("--imu_to_camera_matrix", default=None,
 args = parser.parse_args()
 
 def parseCamera(results, imuToCam0=None):
+    # see https://github.com/ethz-asl/kalibr/wiki/supported-models
+    # and https://spectacularai.github.io/docs/pdf/calibration_manual.pdf
+
     coeffs = results["distortion_coeffs"]
-    if results['distortion_model'] == 'equidistant':
-        coeffs = coeffs[:4]
-        distortionModel = "kannala-brandt4"
+    model = results['distortion_model']
+    if model == 'equidistant':
+        assert(len(coeffs) == 4)
+        distortionModel = 'kannala-brandt4'
+    elif model == 'radtan':
+        k1, k2, p1, p2 = coeffs
+        coeffs = [k1, k2, p1, p2, 0, 0, 0, 0]
+        distortionModel = 'brown-conrady'
     else:
-        # TODO: Ignores 4th coefficient
-        coeffs = coeffs[:3]
-        # coeffs = coeffs[:4]
-        distortionModel = "pinhole"
+        raise RuntimeError('unsupported model %s' % model)
 
     if 'T_cam_imu' in results:
         imuToCam = results['T_cam_imu']

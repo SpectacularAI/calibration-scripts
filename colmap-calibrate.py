@@ -54,16 +54,22 @@ def calibrateVideo(args, videoPath, videoWorkPath, dataJsonlPath):
     if imagesPath.exists():
         print("Skipping video-to-image conversion.")
     else:
-        # Take every n:th frame to get approximately args.frameCount frames.
         print("Counting frames.")
         n = countFrames(videoPath)
+        if args.everyNthFrame > 0:
+            subsample = args.everyNthFrame
+        else:
+            # Take every n:th frame to get approximately args.frameCount frames.
 
-        subsample = int(n / args.frameCount)
-        if subsample == 0: subsample = 1
+            subsample = int(n / args.frameCount)
+            if subsample == 0: subsample = 1
+            print('Total frames {}.'.format(int(n / subsample)))
+
         imagesPath.mkdir(parents=True, exist_ok=True)
         cmd = f"ffmpeg -i {videoPath} -vf \"select=not(mod(n\\,{subsample}))\" -vsync 0 {imagesPath}/%08d.png"
 
-        print("Converting video to images ({} frames).".format(int(n / subsample)))
+        print("Converting video to images (every {}th).".format(subsample))
+        print('Total frames {}.'.format(int(n / subsample)))
         runWithLogging(cmd, "ffmpeg", videoWorkPath)
 
         # Save list of frames used.
@@ -235,6 +241,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(__doc__)
     p.add_argument("datasetPath", type=pathlib.Path, help="Recording folder with data.jsonl and video files.")
     p.add_argument("--frameCount", type=int, default=300, help="Target number of frames per video. Smaller is faster but may cause the calibration to fail.")
+    p.add_argument("--everyNthFrame", type=int, default=0, help="If set, use every Nth frame instead of targeting a certain frame count")
     p.add_argument("--model", default="opencv", help="COLMAP camera model to use.")
     p.add_argument("--dirty", action="store_true", help="Use existing intermediary outputs when found. (Not recommended)")
     p.add_argument("--mapperParameters", default="--Mapper.ba_global_function_tolerance=1e-6", help="COLMAP mapper parameters")

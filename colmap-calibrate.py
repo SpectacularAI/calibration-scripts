@@ -31,6 +31,10 @@ def countFrames(videoPath):
     n = subprocess.check_output(cmd, shell=True).decode('utf-8').strip()
     return int(n)
 
+def readJsonl(filePath):
+    with open(filePath) as f:
+        for l in f: yield(json.loads(l))
+
 def runWithLogging(cmd, name, path):
     process = subprocess.run(cmd, shell=True, capture_output=True)
     with open(path / f"{name}-stderr", "w") as f:
@@ -43,7 +47,7 @@ def runWithLogging(cmd, name, path):
     if err == "": return None
     return err
 
-def calibrateVideo(args, videoPath, videoWorkPath):
+def calibrateVideo(args, videoPath, videoWorkPath, dataJsonlPath):
     imagesPath = videoWorkPath / "images"
     if imagesPath.exists():
         print("Skipping video-to-image conversion.")
@@ -59,6 +63,14 @@ def calibrateVideo(args, videoPath, videoWorkPath):
 
         print("Converting video to images ({} frames).".format(int(n / subsample)))
         runWithLogging(cmd, "ffmpeg", videoWorkPath)
+
+        # Save list of frames used.
+        with open(videoWorkPath / "frames.jsonl", "w") as f:
+            for obj in readJsonl(dataJsonlPath):
+                if not "frames" in obj: continue
+                if obj["number"] % subsample != 0: continue
+                f.write(json.dumps(obj, separators=(',', ':')))
+                f.write("\n")
 
     # May fix crash with COLMAP.
     env = "QT_QPA_PLATFORM=offscreen"
@@ -149,7 +161,8 @@ def main(args):
         print(f"---\nProcessing video {videoInd}/{len(videoPaths)}\n---")
         videoWorkPath = workPath / f"data{videoInd}"
 
-        err = calibrateVideo(args, videoPath, videoWorkPath)
+        dataJsonlPath = args.datasetPath / "data.jsonl"
+        err = calibrateVideo(args, videoPath, videoWorkPath, dataJsonlPath)
         if err is not None:
             print("\nCalibration failed:")
             print(err)

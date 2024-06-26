@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 #
+# Produces intrinsic calibration for all cameras in a Spectacular AI SDK recording.
+#
 # For sensible running speed, you need the GPU (CUDA) support enabled in COLMAP.
 #
 # Usage:
@@ -22,7 +24,7 @@ def findVideos(folder):
     return [(folder / x) for x in os.listdir(folder) if pathlib.Path(x).suffix in FORMATS]
 
 def getVideoInd(videoPath):
-    m = re.match("data(\d*)", videoPath.stem)
+    m = re.match(r"data(\d*)", videoPath.stem)
     if m.group(1) == "": return 1 # data.mp4 is same as data1.mp4.
     return int(m.group(1))
 
@@ -30,6 +32,10 @@ def countFrames(videoPath):
     cmd = f"ffprobe -v error -select_streams v:0 -count_packets -show_entries stream=nb_read_packets -of csv=p=0 {videoPath}"
     n = subprocess.check_output(cmd, shell=True).decode('utf-8').strip()
     return int(n)
+
+def readJsonl(filePath):
+    with open(filePath) as f:
+        for l in f: yield(json.loads(l))
 
 def runWithLogging(cmd, name, path):
     process = subprocess.run(cmd, shell=True, capture_output=True)
@@ -43,7 +49,7 @@ def runWithLogging(cmd, name, path):
     if err == "": return None
     return err
 
-def calibrateVideo(args, videoPath, videoWorkPath):
+def calibrateVideo(args, videoPath, videoWorkPath, dataJsonlPath):
     imagesPath = videoWorkPath / "images"
     if imagesPath.exists():
         print("Skipping video-to-image conversion.")
@@ -59,6 +65,14 @@ def calibrateVideo(args, videoPath, videoWorkPath):
 
         print("Converting video to images ({} frames).".format(int(n / subsample)))
         runWithLogging(cmd, "ffmpeg", videoWorkPath)
+
+        # Save list of frames used.
+        with open(videoWorkPath / "frames.jsonl", "w") as f:
+            for obj in readJsonl(dataJsonlPath):
+                if not "frames" in obj: continue
+                if obj["number"] % subsample != 0: continue
+                f.write(json.dumps(obj, separators=(',', ':')))
+                f.write("\n")
 
     # May fix crash with COLMAP.
     env = "QT_QPA_PLATFORM=offscreen"
@@ -149,7 +163,8 @@ def main(args):
         print(f"---\nProcessing video {videoInd}/{len(videoPaths)}\n---")
         videoWorkPath = workPath / f"data{videoInd}"
 
-        err = calibrateVideo(args, videoPath, videoWorkPath)
+        dataJsonlPath = args.datasetPath / "data.jsonl"
+        err = calibrateVideo(args, videoPath, videoWorkPath, dataJsonlPath)
         if err is not None:
             print("\nCalibration failed:")
             print(err)
@@ -187,8 +202,11 @@ def main(args):
                 "focalLengthY": float(tokens[5]),
                 "principalPointX": float(tokens[6]),
                 "principalPointY": float(tokens[7]),
-                "model": "pinhole",
-                "distortionCoefficients": [float(tokens[8]), float(tokens[9]), 0.],
+                "model": "brown-conrady",
+                "distortionCoefficients": [
+                    float(tokens[8]), float(tokens[9]), float(tokens[10]), float(tokens[11]),
+                    0, 0, 0, 0
+                ],
             })
         elif tokens[1] == "OPENCV_FISHEYE":
             calibration["cameras"].append({

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 #
+# Produces intrinsic calibration for all cameras in a Spectacular AI SDK recording.
+#
 # For sensible running speed, you need the GPU (CUDA) support enabled in COLMAP.
 #
 # Usage:
@@ -200,8 +202,11 @@ def main(args):
                 "focalLengthY": float(tokens[5]),
                 "principalPointX": float(tokens[6]),
                 "principalPointY": float(tokens[7]),
-                "model": "pinhole",
-                "distortionCoefficients": [float(tokens[8]), float(tokens[9]), 0.],
+                "model": "brown-conrady",
+                "distortionCoefficients": [
+                    float(tokens[8]), float(tokens[9]), float(tokens[10]), float(tokens[11]),
+                    0, 0, 0, 0
+                ],
             })
         elif tokens[1] == "OPENCV_FISHEYE":
             calibration["cameras"].append({

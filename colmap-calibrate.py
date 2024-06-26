@@ -22,7 +22,7 @@ def findVideos(folder):
     return [(folder / x) for x in os.listdir(folder) if pathlib.Path(x).suffix in FORMATS]
 
 def getVideoInd(videoPath):
-    m = re.match("data(\d*)", videoPath.stem)
+    m = re.match(r"data(\d*)", videoPath.stem)
     if m.group(1) == "": return 1 # data.mp4 is same as data1.mp4.
     return int(m.group(1))
 

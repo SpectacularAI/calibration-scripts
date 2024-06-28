@@ -4,7 +4,7 @@ import argparse
 import numpy as np
 
 # TODO: use cv2.cornerSubPix
-class OttoCornerDetector:
+class SaddlePointCornerDetector:
     def __init__(self, ksize=3, threshold=100, nms_enabled=True, nms_radius=30):
         self.ksize = ksize # Sobel kernel size
         self.threshold = threshold # Key point response function threshold
@@ -61,7 +61,7 @@ class OttoCornerDetector:
         keypoints = keypoints.astype(np.float32)
         responses = otto_corners[otto_corners > self.threshold]
         if self.nms_enabled:
-            keypoints = apply_nms(keypoints, responses, 30)
+            keypoints = apply_nms(keypoints, responses, self.nms_radius)
         else:
             keypoints = [cv2.KeyPoint(pt[1], pt[0], 1) for pt in keypoints]
 
@@ -116,6 +116,8 @@ def parse_args():
     p.add_argument('--bottom', type=int, default=5, help='Skip N pixels from bottom (issue where the IR images have some artefacts)')
     p.add_argument("--rows", type=int, default=5, help="Number of rows in the checkerboard")
     p.add_argument("--cols", type=int, default=8, help="Number of columns in the checkerboard")
+    p.add_argument('--nms_radius', type=int, default=20, help="Non-maximum supression radius")
+    p.add_argument('--corner_threshold', type=float, default=100, help="Corner-detection threshold")
     return p.parse_args()
 
 def fix_frame(image, bottom):
@@ -205,6 +207,8 @@ def detect_checkerboard_corners(detector, image, rows, cols):
         corners.append(CheckerboardCorner(predicted.id, kp.pt[0], kp.pt[1]))
 
     image_checkerboard = image.copy()
+    for kp in predicted_corners:
+        image_checkerboard = cv2.circle(image_checkerboard, (int(kp.x), int(kp.y)), 3, (255, 0, 0), 1)
     for kp in corners:
         image_checkerboard = cv2.circle(image_checkerboard, (int(kp.x), int(kp.y)), 3, (0, 255, 0), -1)
 
@@ -240,8 +244,8 @@ if __name__ == '__main__':
         capture.release()
         exit(0)
 
-    # Detect Otto corners in the first frame
-    detector = OttoCornerDetector()
+    # Detect saddle point corners in the first frame
+    detector = SaddlePointCornerDetector(nms_radius=args.nms_radius, threshold=args.corner_threshold)
     corners = detect_checkerboard_corners(detector, first_frame, args.rows, args.cols)
     points = [[kp.x, kp.y] for kp in corners]
 

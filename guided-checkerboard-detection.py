@@ -229,7 +229,7 @@ if __name__ == '__main__':
     capture = cv2.VideoCapture(args.video)
 
     # Skip frames at start
-    frame_number = 0
+    frame_number = -1
     for _ in range(args.start):
         success, frame, frame_number = read_frame(capture, frame_number, args.bottom)
         if not success:

@@ -266,7 +266,12 @@ if __name__ == '__main__':
         # Select good points
         good_new = next_points[status == 1]
         good_old = prev_points[status == 1]
+
+        # Update corner positions
         corners = corners[np.squeeze(status) == 1]
+        for i in range(len(corners)):
+            corners[i].x = float(good_new[i][0])
+            corners[i].y = float(good_new[i][1])
         serialized_corners.append(serialize_checkerboard_corners(frame_number, corners))
 
         # Draw the tracks

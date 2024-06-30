@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""
+Visualize the data in a Spectacular AI data.jsonl file
+"""
 
 import argparse
 from matplotlib import pyplot
@@ -7,19 +10,23 @@ import os
 import sys
 import numpy as np
 
-parser = argparse.ArgumentParser(description="JSONL visualizer")
-parser.add_argument("case", help="Folder containing data.jsonl file", nargs='?', default=None)
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("case", help="Folder containing data.jsonl file (or path to data.jsonl)", nargs='?', default=None)
 parser.add_argument("-dir", help="Directory containing benchmarks you want to plot")
 parser.add_argument("-zero", help="Rescale time to start from zero", action='store_true')
 parser.add_argument("-skip", help="Skip N seconds from the start", type=float)
 
 
-def addSubplot(plot, x, y, title, style=None):
+def addSubplot(plot, x, ys, title, style=None, plottype='plot', **kwargs):
+    if len(np.array(ys).shape) < 2:
+        ys = [ys]
     plot.title.set_text(title)
-    if style is not None:
-        plot.plot(x, y, style)
-    else:
-        plot.plot(x, y)
+    p = getattr(plot, plottype)
+    for y in ys:
+        if style is not None:
+            p(x, y, style, **kwargs)
+        else:
+            p(x, y, **kwargs)
 
 
 def plotDataset(folder, args):
@@ -84,19 +91,17 @@ def plotDataset(folder, args):
                 for f in frames:
                     ind = f["cameraInd"]
                     if cameras.get(ind) is None:
-                        cameras[ind] = {"diff": [], "t": []}
-                        cameras[ind]["diff"].append(0.)
-                        cameras[ind]["t"].append(measurement["time"] - timeOffset)
+                        cameras[ind] = {"diff": [0], "t": [] }
                         if "features" in f:
                             cameras[ind]["features"] = []
-                            cameras[ind]["features"].append(len(f["features"]))
                     else:
                         diff = measurement["time"] - cameras[ind]["t"][-1]
                         # print("Time {}, Diff {}".format(measurement["time"], diff))
                         cameras[ind]["diff"].append(diff * 1000.)
-                        cameras[ind]["t"].append(measurement["time"] - timeOffset)
-                        if "features" in f:
-                            cameras[ind]["features"].append(len(f["features"]))
+
+                    if "features" in f:
+                        cameras[ind]["features"].append(len(f["features"]))
+                    cameras[ind]["t"].append(measurement["time"] - timeOffset)
 
 
     camPlots = 0
@@ -106,7 +111,7 @@ def plotDataset(folder, args):
         if "features" in c:
             camPlots += 1
 
-    fig, subplots = pyplot.subplots(9 + camPlots)
+    fig, subplots = pyplot.subplots(5 + camPlots)
     fig.subplots_adjust(hspace=.5)
     fig.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
 
@@ -114,24 +119,29 @@ def plotDataset(folder, args):
         subplot.set_xlim([minTime, maxTime])
 
 
-    addSubplot(subplots[0], accelerometer["t"], accelerometer["x"], "acc x (m/s)")
-    addSubplot(subplots[1], accelerometer["t"], accelerometer["y"], "acc y (m/s)")
-    addSubplot(subplots[2], accelerometer["t"], accelerometer["z"], "acc z (m/s)")
-    addSubplot(subplots[3], accelerometer["t"], accelerometer["td"], "acc time diff (ms)", ".")
-    addSubplot(subplots[4], accelerometer["t"][1:], np.diff(accelerometer["x"]), "Subsequent acc x diff")
+    addSubplot(subplots[0], accelerometer["t"], [accelerometer[c] for c in 'xyz'], "acc (m/s)")
+    addSubplot(subplots[1], accelerometer["t"], accelerometer["td"], "acc time diff (ms)", ".")
+    addSubplot(subplots[2], accelerometer["t"][1:], np.diff(accelerometer["x"]), "Subsequent acc x diff")
 
-    addSubplot(subplots[5], gyroscope["t"], gyroscope["x"], "gyro x (m/s)")
-    addSubplot(subplots[6], gyroscope["t"], gyroscope["y"], "gyro y (m/s)")
-    addSubplot(subplots[7], gyroscope["t"], gyroscope["z"], "gyro z (m/s)")
-    addSubplot(subplots[8], gyroscope["t"], gyroscope["td"], "gyro time diff (ms)", ".")
+    addSubplot(subplots[3], gyroscope["t"], [gyroscope[c] for c in 'xyz'], "gyro (m/s)")
+    addSubplot(subplots[4], gyroscope["t"], gyroscope["td"], "gyro time diff (ms)", ".")
 
     i = 0
     for ind in cameras.keys():
         camera = cameras[ind]
-        addSubplot(subplots[9 + i], camera["t"], camera["diff"], "frame time #{} (ms)".format(ind), ".")
+        order = np.argsort(camera['diff'])[::-1]
+        plotkwargs=dict(
+            plottype='scatter',
+            color=np.array([(1, 0, 0) if c <= 0 else (0.6, 0.6, 1) for c in camera["diff"]])[order],
+            s=6
+        )
+        t = np.array(camera["t"])[order]
+        y = np.array(camera["diff"])[order]
+        addSubplot(subplots[5 + i], t, y, "frame time #{} (ms)".format(ind), **plotkwargs)
         i += 1
         if camera.get("features"):
-            addSubplot(subplots[9 + i], camera["t"], camera["features"], "features #{}".format(ind), ".")
+            y = np.array(camera["features"])[order]
+            addSubplot(subplots[5 + i], t, y, "features #{}".format(ind), **plotkwargs)
             i += 1
 
         if len(camera["t"]) > 0:

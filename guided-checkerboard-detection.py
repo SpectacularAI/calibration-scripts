@@ -30,19 +30,30 @@ class SaddlePointCornerDetector:
             return image
 
         def apply_nms(keypoints, responses, nms_radius):
+            if len(keypoints) == 0: return []
+
+            # Sort keypoints by response in descending order
             indices = np.argsort(-responses)
+            sorted_keypoints = keypoints[indices]
+            sorted_responses = responses[indices]
+
+            # To keep track of suppressed keypoints
+            suppressed = np.zeros(len(keypoints), dtype=bool)
             nms_keypoints = []
-            for i in indices:
-                kp = keypoints[i]
-                response = responses[i]
-                is_new_key_point = True
-                for kp2 in nms_keypoints:
-                    kp2 = np.array([kp2.pt[1], kp2.pt[0]])
-                    if np.linalg.norm(kp - kp2) < nms_radius:
-                        is_new_key_point = False
-                        break
-                if is_new_key_point:
-                    nms_keypoints.append(cv2.KeyPoint(kp[1], kp[0], response))
+
+            for i in range(len(sorted_keypoints)):
+                if suppressed[i]:
+                    continue
+
+                kp = sorted_keypoints[i]
+                nms_keypoints.append(cv2.KeyPoint(kp[1], kp[0], sorted_responses[i]))
+
+                # Calculate distances to remaining keypoints
+                dists = np.sqrt(np.sum((sorted_keypoints[i+1:] - kp) ** 2, axis=1))
+
+                # Suppress all keypoints within the nms_radius
+                suppressed[i+1:] = suppressed[i+1:] | (dists < nms_radius)
+
             return nms_keypoints
 
         if len(image.shape) > 2:

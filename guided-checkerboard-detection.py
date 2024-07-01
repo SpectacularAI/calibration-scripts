@@ -164,7 +164,8 @@ def detect_checkerboard_corners(detector, image, rows, cols):
                 closest_dist = dist
         return closest_kp
 
-    title = 'Select checkerboard corners in order: bottom-left, bottom-right, top-right, top-left'
+    title = 'Select checkerboard corners in order: bottom-left, bottom-right, top-right, top-left. [SPACE]=skip image'
+    print(title)
     selected_kps = []
     def click_event(event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
@@ -172,21 +173,18 @@ def detect_checkerboard_corners(detector, image, rows, cols):
             if kp is None: return
             selected_kps.append(kp)
         else: return
-
-        if len(selected_kps) == 0: print("Select BOTTOM LEFT corner")
-        if len(selected_kps) == 1: print("Select BOTTOM RIGHT corner")
-        if len(selected_kps) == 2: print("Select TOP RIGHT corner")
-        if len(selected_kps) == 3: print("Select TOP LEFT corner")
-
         cv2.imshow(title, draw_keypoints(image_all_keypoints.copy(), selected_kps, color=(0, 255, 0)))
 
-    print("Select BOTTOM LEFT corner")
     image_all_keypoints = draw_keypoints(image.copy(), keypoints, color=(255, 0, 0))
     cv2.imshow(title, image_all_keypoints)
     cv2.setMouseCallback(title, click_event)
 
     while len(selected_kps) < 4:
-        cv2.waitKey(1)
+        key = cv2.waitKey(1)
+        if key == 32: # space (skip frame)
+            cv2.destroyAllWindows()
+            return np.array([])
+
     cv2.destroyAllWindows()
 
     bottom_left = np.array([selected_kps[0].x, selected_kps[0].y])
@@ -204,7 +202,8 @@ def detect_checkerboard_corners(detector, image, rows, cols):
         used_kp_ids.append(kp.id)
         corners.append(SaddlePoint(predicted.id, kp.x, kp.y))
 
-    title = 'Checkerboard corners [SPACE]=continue, [LEFT-CLICK]=remove closest corner, [RIGHT-CLICK]=remove all)'
+    title = '[SPACE]=continue, [LEFT-CLICK]=remove closest, [RIGHT-CLICK]=remove all'
+    print(title)
     def click_event(event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
             kp = select_closest_keypoint(corners, (x, y))
@@ -331,7 +330,7 @@ if __name__ == '__main__':
         should_quit = not capture.isOpened()
 
         while True:
-            cv2.imshow('Tracking result [SPACE]=next, [R]=redetect corners, [D]=delete last N results, [Q]=quit', frame)
+            cv2.imshow('[SPACE]=next, [R]=redetect corners, [D]=delete last N results, [Q]=quit', frame)
             key = cv2.waitKey(0)
 
             if key == 32: # space (next frame)

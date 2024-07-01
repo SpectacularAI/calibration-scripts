@@ -11,7 +11,88 @@ class SaddlePoint:
         self.x = x
         self.y = y
 
-# TODO: use cv2.cornerSubPix
+def refine_corners(image, corners, radius=2, refine_itr=2, plot=False):
+    h, w = image.shape
+
+    def do_refine(c):
+        x0 = int(c.x - radius)
+        y0 = int(c.y - radius)
+        ww = radius*2 + 1
+        x1 = x0 + ww
+        y1 = y0 + ww
+        if x0 < 0 or y0 < 0 or x1 > w or y1 > h:
+            return None
+
+        wnd = image[y0:y1, x0:x1]
+
+        rng = np.arange(0, ww)
+        xx, yy = [np.ravel(c) for c in list(np.meshgrid(rng, rng))]
+
+        A = np.vstack([np.ones_like(xx), xx, yy, xx*yy, xx**2, yy**2]).T
+        coeffs, residuals, rank, singular_values = np.linalg.lstsq(A, np.ravel(wnd), rcond=None)
+
+        rhs = [-coeffs[1], -coeffs[2]]
+        lhs = [
+            [2*coeffs[4], coeffs[3]],
+            [coeffs[3], 2*coeffs[5]]
+        ]
+
+        MAX_COND = 1e4
+        if np.linalg.cond(lhs) > MAX_COND:
+            return None
+
+        # print(lhs, rhs)
+        sol = np.linalg.solve(lhs, rhs)
+
+        x, y = [p - radius for p in sol]
+        #print(x,y)
+
+        # grad_x = coeffs[1] + coeffs[3]*yy + 2*coeffs[4]*xx == 0
+        # grad_y = coeffs[2] + coeffs[3]*xx + 2*coeffs[5]*yy == 0
+        # --> yy = -(coeffs[1] - 2*coeffs[4]*xx)/coeffs[3]
+        # --> coeffs[2] + coeffs[3]*xx - 2*coeffs[5]*(coeffs[1] - 2*coeffs[4]*xx)
+
+        if plot:
+            rgb_image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+            cv2.rectangle(rgb_image, (x0,y0), (x1-1, y1-1), (0xff, 0, 0), 1)
+            cv2.imshow('window location', rgb_image)
+
+            zoom = 30
+            wnd_img = cv2.resize(cv2.cvtColor(wnd, cv2.COLOR_GRAY2RGB), (ww*zoom, ww*zoom), interpolation=cv2.INTER_NEAREST)
+            cx = int((x + radius + 0.5)*zoom)
+            cy = int((y + radius + 0.5)*zoom)
+
+            cx0 = int((radius + 0.5)*zoom)
+            cy0 = int((radius + 0.5)*zoom)
+
+            wnd_img = cv2.circle(wnd_img, (cx0, cy0), 2, (0, 0, 0xff), 1)
+            wnd_img = cv2.circle(wnd_img, (cx, cy), 3, (0xff, 0, 0), 1)
+            cv2.imshow('window', wnd_img)
+
+            fitted_image = (coeffs[0] + coeffs[1]*xx + coeffs[2]*yy + coeffs[3]*xx*yy + coeffs[4]*xx**2 + coeffs[5]*yy**2).reshape(wnd.shape)
+            error_img = fitted_image - wnd
+            cv2.imshow('fit', fitted_image.astype(np.uint8))
+            cv2.imshow('err', cv2.applyColorMap((np.arctan(error_img)*10 + 128).astype(np.uint8), cv2.COLORMAP_JET))
+
+            cv2.waitKey(0)
+
+        return SaddlePoint(c.id, c.x + x, c.y + y)
+
+    for c in corners:
+        c_orig = c
+        for _ in range(refine_itr):
+            c1 = do_refine(c)
+            if c1 is None: break
+            c = c1
+
+        MAX_CHANGE = 2.5
+        if max(abs(c.x - c_orig.x), abs(c.y - c_orig.y)) > MAX_CHANGE:
+            yield(c_orig)
+        else:
+            yield(c)
+
+    if plot: cv2.destroyAllWindows()
+
 class SaddlePointCornerDetector:
     def __init__(self, ksize=3, threshold=100, nms_enabled=True, nms_radius=30):
         self.ksize = ksize # Sobel kernel size
@@ -136,6 +217,8 @@ def parse_args():
     p.add_argument("--cols", type=int, default=8, help="Number of columns in the checkerboard")
     p.add_argument('--nms_radius', type=int, default=20, help="Non-maximum supression radius")
     p.add_argument('--corner_threshold', type=float, default=100, help="Corner-detection threshold")
+    p.add_argument('--no_refine', action='store_true')
+    p.add_argument('--no_refine_after_track', action='store_true')
     return p.parse_args()
 
 def fix_frame(image, bottom):
@@ -228,8 +311,16 @@ def detect_checkerboard_corners(detector, image, rows, cols):
         draw_keypoints(image_checkerboard, corners, 3, (0, 255, 0), -1)
         cv2.imshow(title, image_checkerboard)
 
-    image_checkerboard = image.copy()
+    unrefined_corners = None
+    if not args.no_refine:
+        unrefined_corners = corners[:]
+        for i, c in enumerate(refine_corners(image, corners)):
+            corners[i] = c
+
+    image_checkerboard = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
     draw_keypoints(image_checkerboard, predicted_corners, 3, (255, 0, 0), 1)
+    if unrefined_corners is not None:
+        draw_keypoints(image_checkerboard, unrefined_corners, 3, (0, 0, 255), 1)
     draw_keypoints(image_checkerboard, corners, 3, (0, 255, 0), -1)
     cv2.imshow(title, image_checkerboard)
     cv2.setMouseCallback(title, click_event)
@@ -320,6 +411,10 @@ if __name__ == '__main__':
             for i in range(len(corners)):
                 corners[i].x = float(good_new[i][0])
                 corners[i].y = float(good_new[i][1])
+
+            if not args.no_refine_after_track:
+                for i, c in enumerate(refine_corners(gray_frame, corners)):
+                    corners[i] = c
 
             # Draw the tracks
             for i, (new, old) in enumerate(zip(good_new, good_old)):

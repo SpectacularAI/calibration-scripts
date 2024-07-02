@@ -179,6 +179,15 @@ def draw_keypoints(image, keypoints, radius=3, color=(255, 0, 0), thickness=-1):
         image = cv2.circle(image, (int(kp.x), int(kp.y)), radius, color, thickness)
     return image
 
+def draw_tracks(image, good_new, good_old):
+    for _, (new, old) in enumerate(zip(good_new, good_old)):
+        a, b = new.ravel()
+        c, d = old.ravel()
+        a, b, c, d = int(a), int(b), int(c), int(d)
+        image = cv2.circle(image, (a, b), 3, (0, 255, 0), -1)
+        image = cv2.line(image, (a, b), (c, d), (0, 0, 255), 2)
+    return image
+
 def serialize_checkerboard_corners(frame_id, corners):
     def serialize_corner(corner):
         corner_json = {
@@ -215,7 +224,7 @@ def parse_args():
     p.add_argument('--bottom', type=int, default=5, help='Skip N pixels from bottom (issue where the IR images have some artefacts)')
     p.add_argument("--rows", type=int, default=5, help="Number of rows in the checkerboard")
     p.add_argument("--cols", type=int, default=8, help="Number of columns in the checkerboard")
-    p.add_argument('--nms_radius', type=int, default=20, help="Non-maximum supression radius")
+    p.add_argument('--nms_radius', type=int, default=20, help="Non-maximum supression radius (pixels)")
     p.add_argument('--corner_threshold', type=float, default=100, help="Corner-detection threshold")
     p.add_argument('--no_refine', action='store_true')
     p.add_argument('--no_refine_after_track', action='store_true')
@@ -242,21 +251,21 @@ def predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left,
             corners.append(SaddlePoint(id, xy[0], xy[1]))
     return corners
 
-def detect_checkerboard_corners(detector, image, rows, cols):
+def select_closest_keypoint(keypoints, point, radius=20):
+    closest_kp = None
+    closest_dist = None
+
+    for kp in keypoints:
+        dist = np.sqrt((kp.x - point[0]) ** 2 + (kp.y - point[1]) ** 2)
+        if dist > radius: continue
+        if closest_kp is None or dist < closest_dist:
+            closest_kp = kp
+            closest_dist = dist
+    return closest_kp
+
+def detect_checkerboard_corners(detector, image, rows, cols, refine):
     keypoints = detector.detect(image)
     keypoints = np.array([SaddlePoint(id, kp.pt[0], kp.pt[1]) for id, kp in enumerate(keypoints)])
-
-    def select_closest_keypoint(keypoints, point, radius=20):
-        closest_kp = None
-        closest_dist = None
-
-        for kp in keypoints:
-            dist = np.sqrt((kp.x - point[0]) ** 2 + (kp.y - point[1]) ** 2)
-            if dist > radius: continue
-            if closest_kp is None or dist < closest_dist:
-                closest_kp = kp
-                closest_dist = dist
-        return closest_kp
 
     title = 'Select checkerboard corners in order: bottom-left, bottom-right, top-right, top-left. [SPACE]=skip image'
     print(title)
@@ -298,6 +307,7 @@ def detect_checkerboard_corners(detector, image, rows, cols):
 
     title = '[SPACE]=continue, [LEFT-CLICK]=remove closest, [RIGHT-CLICK]=remove all'
     print(title)
+    image_color = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
     def click_event(event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
             kp = select_closest_keypoint(corners, (x, y))
@@ -305,19 +315,20 @@ def detect_checkerboard_corners(detector, image, rows, cols):
             corners.remove(kp)
         elif event == cv2.EVENT_RBUTTONDOWN:
             corners.clear()
+        else: return
 
-        image_checkerboard = image.copy()
+        image_checkerboard = image_color.copy()
         draw_keypoints(image_checkerboard, predicted_corners, 3, (255, 0, 0), 1)
         draw_keypoints(image_checkerboard, corners, 3, (0, 255, 0), -1)
         cv2.imshow(title, image_checkerboard)
 
     unrefined_corners = None
-    if not args.no_refine:
+    if refine:
         unrefined_corners = corners[:]
         for i, c in enumerate(refine_corners(image, corners)):
             corners[i] = c
 
-    image_checkerboard = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+    image_checkerboard = image_color.copy()
     draw_keypoints(image_checkerboard, predicted_corners, 3, (255, 0, 0), 1)
     if unrefined_corners is not None:
         draw_keypoints(image_checkerboard, unrefined_corners, 3, (0, 0, 255), 1)
@@ -349,8 +360,7 @@ def filter_points_by_motion(points, new_points, max_deviation):
     distances = np.linalg.norm(motions - median_motion, axis=1)
     return np.array([1 if d <= max_deviation else 0 for d in distances])
 
-if __name__ == '__main__':
-    args = parse_args()
+def main(args):
     capture = cv2.VideoCapture(args.video)
 
     # Skip frames at start
@@ -371,7 +381,7 @@ if __name__ == '__main__':
 
     # Detect saddle point corners in the first frame
     detector = SaddlePointCornerDetector(nms_radius=args.nms_radius, threshold=args.corner_threshold)
-    corners = detect_checkerboard_corners(detector, cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY), args.rows, args.cols)
+    corners = detect_checkerboard_corners(detector, cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY), args.rows, args.cols, not args.no_refine)
     prev_points = np.array([[kp.x, kp.y] for kp in corners], dtype=np.float32).reshape(-1, 1, 2)
 
     lk_params = dict(winSize=(15, 15), maxLevel=2, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
@@ -415,43 +425,57 @@ if __name__ == '__main__':
             if not args.no_refine_after_track:
                 for i, c in enumerate(refine_corners(gray_frame, corners)):
                     corners[i] = c
-
-            # Draw the tracks
-            for i, (new, old) in enumerate(zip(good_new, good_old)):
-                a, b = new.ravel()
-                c, d = old.ravel()
-                a, b, c, d = int(a), int(b), int(c), int(d)
-                frame = cv2.circle(frame, (a, b), 3, (0, 255, 0), -1)
-                frame = cv2.line(frame, (a, b), (c, d), (0, 0, 255), 2)
         else:
             good_new = np.array([])
-            goold_old = np.array([])
+            good_old = np.array([])
             corners = np.array([])
 
-        serialized_corners.append(serialize_checkerboard_corners(frame_number, corners))
-
-        # Update the previous frame and previous points
         prev_gray = gray_frame.copy()
         prev_points = good_new.reshape(-1, 1, 2)
-        should_quit = not capture.isOpened()
 
+        title = '[SPACE]=next, [R]=redetect corners, [D]=delete last N results, [Q]=quit'
+        def click_event(event, x, y, flags, param):
+            nonlocal corners, prev_points, good_new, good_old
+            if event == cv2.EVENT_LBUTTONDOWN:
+                kp = select_closest_keypoint(corners, (x, y))
+                if kp is None: return
+                idx = np.where(corners == kp)[0][0]
+                corners = np.delete(corners, idx)
+                good_new = np.delete(good_new, idx, axis=0)
+                good_old = np.delete(good_old, idx, axis=0)
+            elif event == cv2.EVENT_RBUTTONDOWN:
+                good_new = np.array([])
+                good_old = np.array([])
+                corners = np.array([])
+            else: return
+            prev_points = good_new.reshape(-1, 1, 2)
+            cv2.imshow(title, draw_tracks(frame.copy(), good_new, good_old))
+
+        cv2.imshow(title, draw_tracks(frame.copy(), good_new, good_old))
+        cv2.setMouseCallback(title, click_event)
         while True:
-            cv2.imshow('[SPACE]=next, [R]=redetect corners, [D]=delete last N results, [Q]=quit', frame)
             key = cv2.waitKey(0)
 
             if key == 32: # space (next frame)
                 break
             elif key == 114: # 'R' (re-detect corners)
-                corners = detect_checkerboard_corners(detector, prev_gray, args.rows, args.cols)
+                corners = detect_checkerboard_corners(detector, gray_frame, args.rows, args.cols, not args.no_refine)
                 prev_points = np.array([[kp.x, kp.y] for kp in corners], dtype=np.float32).reshape(-1, 1, 2)
                 break
             elif key == 100: # 'D' (delete last N results)
                 for _ in range(DELETE_LAST_N_RESULTS_WHEN_D_PRESSED):
                     if len(serialized_corners) > 0: serialized_corners.pop()
+                good_new = np.array([])
+                good_old = np.array([])
+                corners = np.array([])
+                prev_points = np.array([])
+                cv2.imshow(title, draw_tracks(frame.copy(), good_new, good_old))
                 print(f"Deleted last {DELETE_LAST_N_RESULTS_WHEN_D_PRESSED} results")
             elif key == 113: # 'Q' (quit)
                 should_quit = True
                 break
+
+        serialized_corners.append(serialize_checkerboard_corners(frame_number, corners))
 
     capture.release()
     cv2.destroyAllWindows()
@@ -461,3 +485,6 @@ if __name__ == '__main__':
             for image_corners in serialized_corners:
                 json_line = json.dumps(image_corners)
                 file.write(json_line + '\n')
+
+if __name__ == '__main__':
+    main(parse_args())

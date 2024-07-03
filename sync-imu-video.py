@@ -39,8 +39,7 @@ class OpticalFlowComputer:
             frame = self._grab_frame()
 
             if frame is None: return None
-            # print('frame %d' % frame_no)
-            # if self.frame_no <= args.skip_first_n_frames: continue
+            if self.frame_no <= args.skip_first_n_frames: continue
 
             return self._convert_frame(frame)
 
@@ -158,13 +157,14 @@ if __name__ == '__main__':
     p.add_argument('video', help="path to video file")
     p.add_argument('data', help="path to data.jsonl file")
     p.add_argument('--flow_winsize', type=int, default=15)
+    p.add_argument('--max_frames', type=int, default=0)
+    p.add_argument('-skip', '--skip_first_n_frames', type=int, default=0, help='Skip first N frames')
     p.add_argument('--preview', action='store_true')
     p.add_argument('--noPlot', action='store_true')
     p.add_argument('--frameTimeOffsetSeconds', type=float)
     p.add_argument('--resize_width', type=int, default=200)
     p.add_argument('--output', help="data.jsonl with frame timestamp shifted to match gyroscope timestamps")
     p.add_argument('--maxOffset', help="Maximum offset between gyro and frame times in seconds", type=float, default=1.0)
-
 
     args = p.parse_args()
 
@@ -190,6 +190,11 @@ if __name__ == '__main__':
             if prevFrameTime != None:
                 frameTimes.append((prevFrameTime + entry["time"]) / 2.0)
             prevFrameTime = entry["time"]
+
+    if args.max_frames > 0:
+        frameTimes = frameTimes[args.skip_first_n_frames: args.skip_first_n_frames + args.max_frames]
+        gyroSpeed = [gyroSpeed[i] for i, t in enumerate(gyroTimes) if t >= frameTimes[0] and t <= frameTimes[-1]]
+        gyroTimes = [t for t in gyroTimes if t >= frameTimes[0] and t <= frameTimes[-1]]
 
     for i in range(len(frameTimes)):
         avg_speed = leader_flow.next_avg_speed_flow()

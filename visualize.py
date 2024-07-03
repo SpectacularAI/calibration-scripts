@@ -16,7 +16,7 @@ parser.add_argument("-dir", help="Directory containing benchmarks you want to pl
 parser.add_argument("-zero", help="Rescale time to start from zero", action='store_true')
 parser.add_argument("-skip", help="Skip N seconds from the start", type=float)
 parser.add_argument("-max", help="Plot max N seconds from the start", type=float)
-
+parser.add_argument('--plot_acc_x_diff', action='store_true')
 
 def addSubplot(plot, x, ys, title, style=None, plottype='plot', **kwargs):
     if len(np.array(ys).shape) < 2:
@@ -37,6 +37,7 @@ def plotDataset(folder, args):
 
     accelerometer = {"x": [], "y": [], "z": [], "t": [], "td": []}
     gyroscope = {"x": [], "y": [], "z": [], "t": [], "td": []}
+    altitude = {"v": [], "t": [] }
     cameras = {}
 
     startTime = sys.maxsize
@@ -67,28 +68,30 @@ def plotDataset(folder, args):
                 if minTime == None or minTime > t: minTime = t
                 if maxTime == None or maxTime < t: maxTime = t
 
-            if measurement.get("sensor") is not None:
-                measurementType = measurement["sensor"]["type"]
+                t_corr = measurement["time"] - timeOffset
+
+            sensor = measurement.get("sensor")
+            if sensor is not None:
+                measurementType = sensor["type"]
                 if measurementType == "accelerometer":
-                    accelerometer["x"].append(measurement["sensor"]["values"][0])
-                    accelerometer["y"].append(measurement["sensor"]["values"][1])
-                    accelerometer["z"].append(measurement["sensor"]["values"][2])
+                    for i, c in enumerate('xyz'): accelerometer[c].append(sensor["values"][i])
                     if len(accelerometer["t"]) == 0:
                         diff = 0
                     else:
-                        diff = measurement["time"] - timeOffset - accelerometer["t"][-1]
+                        diff = t_corr - accelerometer["t"][-1]
                     accelerometer["td"].append(diff * 1000.)
-                    accelerometer["t"].append(measurement["time"] - timeOffset)
+                    accelerometer["t"].append(t_corr)
                 if measurementType == "gyroscope":
-                    gyroscope["x"].append(measurement["sensor"]["values"][0])
-                    gyroscope["y"].append(measurement["sensor"]["values"][1])
-                    gyroscope["z"].append(measurement["sensor"]["values"][2])
+                    for i, c in enumerate('xyz'): gyroscope[c].append(sensor["values"][i])
                     if len(gyroscope["t"]) == 0:
                         diff = 0
                     else:
-                        diff = measurement["time"] - timeOffset - gyroscope["t"][-1]
+                        diff = t_corr - gyroscope["t"][-1]
                     gyroscope["td"].append(diff * 1000.)
-                    gyroscope["t"].append(measurement["time"] - timeOffset)
+                    gyroscope["t"].append(t_corr)
+                if measurementType == "altitude":
+                    altitude["v"].append(sensor["values"][0])
+                    altitude["t"].append(t_corr)
             if measurement.get("frames") is not None:
                 frames = measurement.get("frames")
                 for f in frames:
@@ -104,34 +107,24 @@ def plotDataset(folder, args):
 
                     if "features" in f:
                         cameras[ind]["features"].append(len(f["features"]))
-                    cameras[ind]["t"].append(measurement["time"] - timeOffset)
+                    cameras[ind]["t"].append(t_corr)
 
         if nSkipped > 0:
             print('skipped %d lines' % nSkipped)
 
-    camPlots = 0
-    for ind in cameras.keys():
-        c = cameras[ind]
-        camPlots += 1
-        if "features" in c:
-            camPlots += 1
+    plots = [
+        lambda s: addSubplot(s, accelerometer["t"], [accelerometer[c] for c in 'xyz'], "acc (m/s)"),
+        lambda s: addSubplot(s, accelerometer["t"], accelerometer["td"], "acc time diff (ms)", "."),
+        lambda s: addSubplot(s, gyroscope["t"], [gyroscope[c] for c in 'xyz'], "gyro (m/s)"),
+        lambda s: addSubplot(s, gyroscope["t"], gyroscope["td"], "gyro time diff (ms)", ".")
+    ]
 
-    fig, subplots = pyplot.subplots(5 + camPlots)
-    fig.subplots_adjust(hspace=.5)
-    fig.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
+    if len(altitude['t']) > 0:
+        plots.append(lambda s: addSubplot(s, altitude["t"], altitude["v"], "altitude (m)"))
 
-    for subplot in subplots:
-        subplot.set_xlim([minTime, maxTime])
+    if args.plot_acc_x_diff:
+        plots.append(lambda s: addSubplot(s, accelerometer["t"][1:], np.diff(accelerometer["x"]), "Subsequent acc x diff"))
 
-
-    addSubplot(subplots[0], accelerometer["t"], [accelerometer[c] for c in 'xyz'], "acc (m/s)")
-    addSubplot(subplots[1], accelerometer["t"], accelerometer["td"], "acc time diff (ms)", ".")
-    addSubplot(subplots[2], accelerometer["t"][1:], np.diff(accelerometer["x"]), "Subsequent acc x diff")
-
-    addSubplot(subplots[3], gyroscope["t"], [gyroscope[c] for c in 'xyz'], "gyro (m/s)")
-    addSubplot(subplots[4], gyroscope["t"], gyroscope["td"], "gyro time diff (ms)", ".")
-
-    i = 0
     for ind in cameras.keys():
         camera = cameras[ind]
         order = np.argsort(camera['diff'])[::-1]
@@ -142,12 +135,14 @@ def plotDataset(folder, args):
         )
         t = np.array(camera["t"])[order]
         y = np.array(camera["diff"])[order]
-        addSubplot(subplots[5 + i], t, y, "frame time #{} (ms)".format(ind), **plotkwargs)
-        i += 1
+        plots.append(
+            lambda s: addSubplot(s, t, y, "frame time #{} (ms)".format(ind), **plotkwargs)
+        )
         if camera.get("features"):
             y = np.array(camera["features"])[order]
-            addSubplot(subplots[5 + i], t, y, "features #{}".format(ind), **plotkwargs)
-            i += 1
+            plots.append(
+                lambda s: addSubplot(s, t, y, "features #{}".format(ind), **plotkwargs)
+            )
 
         if len(camera["t"]) > 0:
             print("camera ind {} rate:         {:.2f}FPS  (frame count {})".format(
@@ -163,6 +158,15 @@ def plotDataset(folder, args):
         print("gyroscope frequency:       {:.2f}Hz  (sample count {})".format(
           len(gyroscope["t"]) / (gyroscope["t"][-1] - gyroscope["t"][0]),
           len(gyroscope["t"])))
+
+    fig, subplots = pyplot.subplots(len(plots))
+    fig.subplots_adjust(hspace=.5)
+    fig.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
+
+    for subplot, plot_func in zip(subplots, plots): plot_func(subplot)
+
+    for subplot in subplots:
+        subplot.set_xlim([minTime, maxTime])
 
     pyplot.show()
 

@@ -15,6 +15,7 @@ parser.add_argument("case", help="Folder containing data.jsonl file (or path to 
 parser.add_argument("-dir", help="Directory containing benchmarks you want to plot")
 parser.add_argument("-zero", help="Rescale time to start from zero", action='store_true')
 parser.add_argument("-skip", help="Skip N seconds from the start", type=float)
+parser.add_argument("-max", help="Plot max N seconds from the start", type=float)
 
 
 def addSubplot(plot, x, ys, title, style=None, plottype='plot', **kwargs):
@@ -54,15 +55,17 @@ def plotDataset(folder, args):
     maxTime = None
 
     with open(jsonlFile) as f:
+        nSkipped = 0
         for line in f.readlines():
             measurement = json.loads(line)
-            if args.skip != None and measurement.get("time") != None and measurement.get("time") - startTime < args.skip:
-                print("Skiping")
-                continue
-
             if "time" in measurement:
-                if minTime == None or minTime > measurement.get("time"): minTime = measurement.get("time")
-                if maxTime == None or maxTime < measurement.get("time"): maxTime = measurement.get("time")
+                t = measurement["time"]
+                if (args.skip is not None and t - startTime < args.skip) or (args.max is not None and t - startTime > args.max):
+                    nSkipped += 1
+                    continue
+
+                if minTime == None or minTime > t: minTime = t
+                if maxTime == None or maxTime < t: maxTime = t
 
             if measurement.get("sensor") is not None:
                 measurementType = measurement["sensor"]["type"]
@@ -103,6 +106,8 @@ def plotDataset(folder, args):
                         cameras[ind]["features"].append(len(f["features"]))
                     cameras[ind]["t"].append(measurement["time"] - timeOffset)
 
+        if nSkipped > 0:
+            print('skipped %d lines' % nSkipped)
 
     camPlots = 0
     for ind in cameras.keys():

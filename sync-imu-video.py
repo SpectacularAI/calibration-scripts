@@ -192,7 +192,11 @@ if __name__ == '__main__':
             prevFrameTime = entry["time"]
 
     if args.max_frames > 0:
-        frameTimes = frameTimes[args.skip_first_n_frames: args.skip_first_n_frames + args.max_frames]
+        frameTimes = frameTimes[args.skip_first_n_frames : args.skip_first_n_frames + args.max_frames]
+        gyroSpeed = [gyroSpeed[i] for i, t in enumerate(gyroTimes) if t >= frameTimes[0] and t <= frameTimes[-1]]
+        gyroTimes = [t for t in gyroTimes if t >= frameTimes[0] and t <= frameTimes[-1]]
+    elif args.skip_first_n_frames > 0:
+        frameTimes = frameTimes[args.skip_first_n_frames:]
         gyroSpeed = [gyroSpeed[i] for i, t in enumerate(gyroTimes) if t >= frameTimes[0] and t <= frameTimes[-1]]
         gyroTimes = [t for t in gyroTimes if t >= frameTimes[0] and t <= frameTimes[-1]]
 

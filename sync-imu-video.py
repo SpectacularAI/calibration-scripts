@@ -164,7 +164,7 @@ if __name__ == '__main__':
     p.add_argument('--frameTimeOffsetSeconds', type=float)
     p.add_argument('--resize_width', type=int, default=200)
     p.add_argument('--output', help="data.jsonl with frame timestamp shifted to match gyroscope timestamps")
-    p.add_argument('--maxOffset', help="Maximum offset between gyro and frame times in seconds", type=float, default=1.0)
+    p.add_argument('--maxOffset', help="Maximum offset between gyro and frame times in seconds", type=float, default=5.0)
 
     args = p.parse_args()
 

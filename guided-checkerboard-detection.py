@@ -10,6 +10,155 @@ class SaddlePoint:
         self.x = x
         self.y = y
 
+    def xy(self):
+        return np.array([self.x, self.y])
+
+class CheckerBoard:
+    def __init__(self, rows, cols):
+        self.rows = rows
+        self.cols = cols
+
+    def get_corner_id(self, row, col):
+        # NOTE: assumes only tracking inner corners
+        assert(self.is_valid_row_col(row, col))
+        return col * (self.rows - 1) + row
+
+    def get_row_col(self, id):
+        # NOTE: assumes only tracking inner corners
+        row = id % (self.rows - 1)
+        col = int(id / (self.rows - 1))
+        assert(self.is_valid_row_col(row, col))
+        return row, col
+
+    def is_valid_row_col(self, row, col):
+        return row >= 0 and row < self.rows - 1 and col >= 0 and col < self.cols - 1
+
+    def detect_missing_corners(self, keypoints, bottom_left, bottom_right, top_right, top_left):
+        # TODO: clean up, and make this work with arbitrary corners (not the 4 corners)
+        corners = {}
+        corner_deltas = {}
+        bottom_left.id = self.get_corner_id(0, 0)
+        bottom_right.id = self.get_corner_id(0, self.cols-2)
+        top_right.id = self.get_corner_id(self.rows-2, self.cols-2)
+        top_left.id = self.get_corner_id(self.rows-2, 0)
+        corners[bottom_left.id] = bottom_left
+        corners[bottom_right.id] = bottom_right
+        corners[top_right.id] = top_right
+        corners[top_left.id] = top_left
+
+        delta_up1 = (top_left.xy() - bottom_left.xy()) / (self.rows - 2)
+        delta_up2 = (top_right.xy() - bottom_right.xy()) / (self.rows - 2)
+        delta_right1 = (bottom_right.xy() - bottom_left.xy()) / (self.cols - 2)
+        delta_right2 = (top_right.xy() - top_left.xy()) / (self.cols - 2)
+
+        corner_deltas[bottom_left.id] = (delta_up1, delta_right1)
+        corner_deltas[bottom_right.id] = (delta_up2, delta_right1)
+        corner_deltas[top_right.id] = (delta_up2, delta_right2)
+        corner_deltas[top_left.id] = (delta_up1, delta_right2)
+
+        def find_closest_corner_bfs(row, col):
+            assert(len(corners) > 0)
+            assert(self.is_valid_row_col(row, col))
+            id = self.get_corner_id(row, col)
+            Q = [] # queue
+            Q.append(id)
+            explored = {id : True}
+            while len(Q) > 0:
+                id = Q.pop(0)
+                if id in corners: return corners[id]
+                i, j = self.get_row_col(id)
+                for edge in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    i2, j2 = i + edge[0], j + edge[1]
+                    if not self.is_valid_row_col(i2, j2): continue
+                    id2 = self.get_corner_id(i2, j2)
+                    if id2 in explored: continue
+                    explored[id2] = True
+                    Q.append(id2)
+            assert(False) # should not be here
+
+        predicted_corners = [] # for visualization / debugging
+        for j in range(self.cols - 1):
+            for i in range(self.rows - 1):
+                id = self.get_corner_id(i, j)
+                if id in corners: continue
+                closest = find_closest_corner_bfs(i, j)
+                delta_up, delta_right = corner_deltas[closest.id]
+                i2, j2 = self.get_row_col(closest.id)
+                di = i - i2
+                dj = j - j2
+                predicted = closest.xy() + delta_right * dj + delta_up * di
+                predicted_corners.append(SaddlePoint(id, predicted[0], predicted[1]))
+                kp = select_closest_keypoint(keypoints, predicted)
+                if kp is None: continue
+                corners[id] = SaddlePoint(id, kp.x, kp.y)
+                corner_deltas[id] = (delta_up, delta_right) # TODO: update properly
+
+        return [corners[id] for id in corners], predicted_corners
+
+    def detect_corners(self, detector, image, refine):
+        keypoints = detector.detect(image)
+        keypoints = np.array([SaddlePoint(id, kp.pt[0], kp.pt[1]) for id, kp in enumerate(keypoints)])
+
+        title = 'Select checkerboard corners in order: bottom-left, bottom-right, top-right, top-left. [SPACE]=skip image'
+        print(title)
+        selected_kps = []
+        def click_event(event, x, y, flags, param):
+            if event == cv2.EVENT_LBUTTONDOWN:
+                kp = select_closest_keypoint(keypoints, (x, y))
+                if kp is None: return
+                selected_kps.append(kp)
+            else: return
+            cv2.imshow(title, draw_keypoints(image_all_keypoints.copy(), selected_kps, color=(0, 255, 0)))
+
+        image_all_keypoints = draw_keypoints(image.copy(), keypoints, color=(255, 0, 0))
+        cv2.imshow(title, image_all_keypoints)
+        cv2.setMouseCallback(title, click_event)
+
+        while len(selected_kps) < 4:
+            key = cv2.waitKey(1)
+            if key == 32: # space (skip frame)
+                cv2.destroyAllWindows()
+                return np.array([])
+
+        cv2.destroyAllWindows()
+
+        corners, predicted_corners = self.detect_missing_corners(keypoints, selected_kps[0], selected_kps[1], selected_kps[2], selected_kps[3])
+
+        title = '[SPACE]=continue, [LEFT-CLICK]=remove closest, [RIGHT-CLICK]=remove all'
+        print(title)
+        image_color = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+        def click_event(event, x, y, flags, param):
+            if event == cv2.EVENT_LBUTTONDOWN:
+                kp = select_closest_keypoint(corners, (x, y))
+                if kp is None: return
+                corners.remove(kp)
+            elif event == cv2.EVENT_RBUTTONDOWN:
+                corners.clear()
+            else: return
+
+            image_checkerboard = image_color.copy()
+            draw_keypoints(image_checkerboard, predicted_corners, 3, (255, 0, 0), 1)
+            draw_keypoints(image_checkerboard, corners, 3, (0, 255, 0), -1)
+            cv2.imshow(title, image_checkerboard)
+
+        unrefined_corners = None
+        if refine:
+            unrefined_corners = corners[:]
+            for i, c in enumerate(refine_corners(image, corners)):
+                corners[i] = c
+
+        image_checkerboard = image_color.copy()
+        draw_keypoints(image_checkerboard, predicted_corners, 3, (255, 0, 0), 1)
+        if unrefined_corners is not None:
+            draw_keypoints(image_checkerboard, unrefined_corners, 3, (0, 0, 255), 1)
+        draw_keypoints(image_checkerboard, corners, 3, (0, 255, 0), -1)
+        cv2.imshow(title, image_checkerboard)
+        cv2.setMouseCallback(title, click_event)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+        return np.array(corners)
+
 def refine_corners(image, corners, radius=2, refine_itr=2, plot=False):
     h, w = image.shape
 
@@ -270,36 +419,8 @@ def serialize_checkerboard_corners(frame_id, corners):
     }
     return image_json
 
-def checkerboard_corner_to_id(row, col, rows):
-    # NOTE: assumes only tracking inner corners
-    return  col * (rows - 1) + row
-
-def checkerboard_id_to_corner(id, rows):
-    # NOTE: assumes only tracking inner corners
-    row = id % (rows - 1)
-    col = int(id / (rows - 1))
-    return row, col
-
 def fix_frame(image, bottom):
     image[-bottom:, :] = (0, 0, 0)
-
-def predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left, rows, cols):
-    delta_up_left = (top_left - bottom_left) / (rows - 2)
-    delta_up_right = (top_right - bottom_right) / (rows - 2)
-    delta_right_bottom = (bottom_right - bottom_left) / (cols - 2)
-
-    def lerp(start, stop, w):
-        return w * start + (1.0 - w) * stop
-
-    # Detect all checkerboard corners based on the 4 corner points
-    corners = []
-    for j in range(cols - 1):
-        for i in range(rows - 1):
-            w = 1.0 - j / (cols - 2)
-            id = checkerboard_corner_to_id(i, j, rows)
-            xy = bottom_left + delta_right_bottom * j + lerp(delta_up_left, delta_up_right, w) * i
-            corners.append(SaddlePoint(id, xy[0], xy[1]))
-    return corners
 
 def select_closest_keypoint(keypoints, point, radius=20):
     closest_kp = None
@@ -312,83 +433,6 @@ def select_closest_keypoint(keypoints, point, radius=20):
             closest_kp = kp
             closest_dist = dist
     return closest_kp
-
-def detect_checkerboard_corners(detector, image, rows, cols, refine):
-    keypoints = detector.detect(image)
-    keypoints = np.array([SaddlePoint(id, kp.pt[0], kp.pt[1]) for id, kp in enumerate(keypoints)])
-
-    title = 'Select checkerboard corners in order: bottom-left, bottom-right, top-right, top-left. [SPACE]=skip image'
-    print(title)
-    selected_kps = []
-    def click_event(event, x, y, flags, param):
-        if event == cv2.EVENT_LBUTTONDOWN:
-            kp = select_closest_keypoint(keypoints, (x, y))
-            if kp is None: return
-            selected_kps.append(kp)
-        else: return
-        cv2.imshow(title, draw_keypoints(image_all_keypoints.copy(), selected_kps, color=(0, 255, 0)))
-
-    image_all_keypoints = draw_keypoints(image.copy(), keypoints, color=(255, 0, 0))
-    cv2.imshow(title, image_all_keypoints)
-    cv2.setMouseCallback(title, click_event)
-
-    while len(selected_kps) < 4:
-        key = cv2.waitKey(1)
-        if key == 32: # space (skip frame)
-            cv2.destroyAllWindows()
-            return np.array([])
-
-    cv2.destroyAllWindows()
-
-    bottom_left = np.array([selected_kps[0].x, selected_kps[0].y])
-    bottom_right = np.array([selected_kps[1].x, selected_kps[1].y])
-    top_right = np.array([selected_kps[2].x, selected_kps[2].y])
-    top_left = np.array([selected_kps[3].x, selected_kps[3].y])
-
-    predicted_corners = predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left, rows, cols)
-    corners = []
-    used_kp_ids = []
-    for predicted in predicted_corners:
-        kp = select_closest_keypoint(keypoints, (predicted.x, predicted.y))
-        if kp is None: continue
-        if kp.id in used_kp_ids: continue # TODO: Handle duplicate matches better...
-        used_kp_ids.append(kp.id)
-        corners.append(SaddlePoint(predicted.id, kp.x, kp.y))
-
-    title = '[SPACE]=continue, [LEFT-CLICK]=remove closest, [RIGHT-CLICK]=remove all'
-    print(title)
-    image_color = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-    def click_event(event, x, y, flags, param):
-        if event == cv2.EVENT_LBUTTONDOWN:
-            kp = select_closest_keypoint(corners, (x, y))
-            if kp is None: return
-            corners.remove(kp)
-        elif event == cv2.EVENT_RBUTTONDOWN:
-            corners.clear()
-        else: return
-
-        image_checkerboard = image_color.copy()
-        draw_keypoints(image_checkerboard, predicted_corners, 3, (255, 0, 0), 1)
-        draw_keypoints(image_checkerboard, corners, 3, (0, 255, 0), -1)
-        cv2.imshow(title, image_checkerboard)
-
-    unrefined_corners = None
-    if refine:
-        unrefined_corners = corners[:]
-        for i, c in enumerate(refine_corners(image, corners)):
-            corners[i] = c
-
-    image_checkerboard = image_color.copy()
-    draw_keypoints(image_checkerboard, predicted_corners, 3, (255, 0, 0), 1)
-    if unrefined_corners is not None:
-        draw_keypoints(image_checkerboard, unrefined_corners, 3, (0, 0, 255), 1)
-    draw_keypoints(image_checkerboard, corners, 3, (0, 255, 0), -1)
-    cv2.imshow(title, image_checkerboard)
-    cv2.setMouseCallback(title, click_event)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-    return np.array(corners)
 
 def read_frame(capture, frame_number, bottom):
     success, frame = capture.read()
@@ -436,7 +480,8 @@ def main(args):
         nms_radius=args.detector_nms_radius,
         threshold=args.detector_threshold,
         debug=args.detector_debug)
-    corners = detect_checkerboard_corners(detector, cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY), args.rows, args.cols, not args.no_refine)
+    board = CheckerBoard(args.rows, args.cols)
+    corners = board.detect_corners(detector, cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY), not args.no_refine)
     prev_points = np.array([[kp.x, kp.y] for kp in corners], dtype=np.float32).reshape(-1, 1, 2)
 
     lk_params = dict(winSize=(15, 15), maxLevel=2, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
@@ -514,7 +559,7 @@ def main(args):
             if key == 32: # space (next frame)
                 break
             elif key == 114: # 'R' (re-detect corners)
-                corners = detect_checkerboard_corners(detector, gray_frame, args.rows, args.cols, not args.no_refine)
+                corners = board.detect_corners(detector, gray_frame, not args.no_refine)
                 prev_points = np.array([[kp.x, kp.y] for kp in corners], dtype=np.float32).reshape(-1, 1, 2)
                 break
             elif key == 100: # 'D' (delete last N results)

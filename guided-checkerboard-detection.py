@@ -1,6 +1,5 @@
 import cv2
 import json
-import argparse
 import numpy as np
 
 DELETE_LAST_N_RESULTS_WHEN_D_PRESSED = 10
@@ -94,21 +93,48 @@ def refine_corners(image, corners, radius=2, refine_itr=2, plot=False):
     if plot: cv2.destroyAllWindows()
 
 class SaddlePointCornerDetector:
-    def __init__(self, ksize=3, threshold=100, nms_enabled=True, nms_radius=30):
+    def __init__(self, detector="sobel", ksize=3, threshold=100, nms_enabled=True, nms_radius=30, debug=False):
+        assert ksize % 2 == 1, "kernel size must be odd"
+        self.detector = detector
         self.ksize = ksize # Sobel kernel size
         self.threshold = threshold # Key point response function threshold
         self.nms_enabled = nms_enabled # Enable non-maximum supression (NMS)
         self.nms_radius = nms_radius # NMS radius
+        self.kernel = self.__create_kernel_custom(ksize) if detector == "custom" else None
+        self.debug = debug
 
-    def detect(self, image, plot=False):
-        def convert_to_gray_scale_image(image, min_val=None, max_val=None):
+    """
+    Returns kernel of this type:
+        [-1,  0,  1]
+        [ 0,  0,  0]
+        [ 1,  0, -1]
+    """
+    def __create_kernel_custom(self, N):
+        kernel = np.zeros((N, N), dtype=int)
+        center = N // 2
+
+        for i in range(N):
+            for j in range(N):
+                if i < center and j < center:
+                    kernel[i, j] = -1
+                elif i > center and j > center:
+                    kernel[i, j] = -1
+                elif i < center and j > center:
+                    kernel[i, j] = 1
+                elif i > center and j < center:
+                    kernel[i, j] = 1
+        return kernel
+
+    def detect(self, image):
+        def convert_response_to_gray_scale_image(response, min_val=None, max_val=None):
+            response[response < self.threshold] = 0
             if min_val is None:
-                min_val = np.min(image)
+                min_val = np.min(response)
             if max_val is None:
-                max_val = np.max(image)
-            image = np.maximum(0, np.minimum(max_val, image) - min_val) / (max_val - min_val) * 255
-            image = image.astype(np.uint8)
-            return image
+                max_val = np.max(response)
+            print(min_val, max_val)
+            response = np.maximum(0, np.minimum(max_val, response) - min_val) / (max_val - min_val) * 255
+            return response.astype(np.uint8)
 
         def apply_nms(keypoints, responses, nms_radius):
             if len(keypoints) == 0: return []
@@ -143,32 +169,70 @@ class SaddlePointCornerDetector:
         else:
             gray = image
 
-        I_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=self.ksize)
-        I_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=self.ksize)
-        I_xx = cv2.Sobel(I_x, cv2.CV_64F, 1, 0, ksize=self.ksize)
-        I_yy = cv2.Sobel(I_y, cv2.CV_64F, 0, 1, ksize=self.ksize)
-        I_xy = cv2.Sobel(I_x, cv2.CV_64F, 0, 1, ksize=self.ksize)
-        # I_yx = cv2.Sobel(I_y, cv2.CV_64F, 1, 0, ksize=self.ksize)
+        def detect_corners_sobel():
+            I_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=self.ksize)
+            I_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=self.ksize)
+            I_xx = cv2.Sobel(I_x, cv2.CV_64F, 1, 0, ksize=self.ksize)
+            I_yy = cv2.Sobel(I_y, cv2.CV_64F, 0, 1, ksize=self.ksize)
+            I_xy = cv2.Sobel(I_x, cv2.CV_64F, 0, 1, ksize=self.ksize)
 
-        p = I_xx * I_yy - I_xy**2
-        m = 0.5*(I_xx + I_yy)
-        l1 = m + np.sqrt(m**2 - p)
-        l2 = m - np.sqrt(m**2 - p)
-        response = -np.sign(l1*l2) * np.minimum(np.abs(l1), np.abs(l2))
-        corners = response
+            p = I_xx * I_yy - I_xy**2
+            m = 0.5*(I_xx + I_yy)
+            l1 = m + np.sqrt(m**2 - p)
+            l2 = m - np.sqrt(m**2 - p)
 
-        keypoints = np.argwhere(corners > self.threshold)
-        keypoints = keypoints.astype(np.float32)
-        responses = corners[corners > self.threshold]
+            response = -np.sign(l1*l2) * np.minimum(np.abs(l1), np.abs(l2))
+            keypoints = np.argwhere(response > self.threshold)
+            keypoints = keypoints.astype(np.float32)
+            keypoint_responses = response[response > self.threshold]
+            return response, keypoints, keypoint_responses
+
+        def detect_corners_sobel_simple():
+            I_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=self.ksize)
+            I_xy = cv2.Sobel(I_x, cv2.CV_64F, 0, 1, ksize=self.ksize)
+
+            response = np.abs(I_xy)
+            keypoints = np.argwhere(response > self.threshold)
+            keypoints = keypoints.astype(np.float32)
+            keypoint_responses = response[response > self.threshold]
+            return response, keypoints, keypoint_responses
+
+        def detect_corners_harris():
+            response = cv2.cornerHarris(np.float32(gray), blockSize=7, ksize=self.ksize, k=0.04)
+            keypoints = np.argwhere(response > self.threshold)
+            keypoints = keypoints.astype(np.float32)
+            keypoint_responses = response[response > self.threshold]
+            return response, keypoints, keypoint_responses
+
+        def detect_corners_custom():
+            response = cv2.filter2D(gray, cv2.CV_64F, self.kernel)
+            response = np.abs(response)
+            keypoints = np.argwhere(response > self.threshold)
+            keypoints = keypoints.astype(np.float32)
+            keypoint_responses = response[response > self.threshold]
+            return response, keypoints, keypoint_responses
+
+        if self.detector == "sobel":
+            response, keypoints, keypoint_responses = detect_corners_sobel()
+        elif self.detector == "sobel_simple":
+            response, keypoints, keypoint_responses = detect_corners_sobel_simple()
+        elif self.detector == "harris":
+            response, keypoints, keypoint_responses = detect_corners_harris()
+        elif self.detector == "custom":
+            response, keypoints, keypoint_responses = detect_corners_custom()
+        else:
+            print(f"Invalid detector: {self.detector}")
+            exit(0)
+
         if self.nms_enabled:
-            keypoints = apply_nms(keypoints, responses, self.nms_radius)
+            keypoints = apply_nms(keypoints, keypoint_responses, self.nms_radius)
         else:
             keypoints = [cv2.KeyPoint(pt[1], pt[0], 1) for pt in keypoints]
 
-        if plot:
-            image = cv2.drawKeypoints(image.copy(), keypoints, None, color=(255, 0, 0), flags=0)
-            cv2.imshow('Response', convert_to_gray_scale_image(corners, min_val=0, max_val=500))
-            cv2.imshow('Corners', cv2.convertScaleAbs(image))
+        if self.debug:
+            image_with_keypoints = cv2.drawKeypoints(image.copy(), keypoints, None, color=(255, 0, 0), flags=0)
+            cv2.imshow('Response', convert_response_to_gray_scale_image(response, min_val=0, max_val=500))
+            cv2.imshow('Image with keypoints', cv2.convertScaleAbs(image_with_keypoints))
             cv2.waitKey(0)
             cv2.destroyAllWindows()
 
@@ -215,20 +279,6 @@ def checkerboard_id_to_corner(id, rows):
     row = id % (rows - 1)
     col = int(id / (rows - 1))
     return row, col
-
-def parse_args():
-    p = argparse.ArgumentParser()
-    p.add_argument('video', type=str, help='Path to the video file.')
-    p.add_argument('--output', type=str, help='Save detected corners to this file (.jsonl)')
-    p.add_argument('--start', type=int, default=0, help='Start tracking on this frame')
-    p.add_argument('--bottom', type=int, default=5, help='Skip N pixels from bottom (issue where the IR images have some artefacts)')
-    p.add_argument("--rows", type=int, default=5, help="Number of rows in the checkerboard")
-    p.add_argument("--cols", type=int, default=8, help="Number of columns in the checkerboard")
-    p.add_argument('--nms_radius', type=int, default=20, help="Non-maximum supression radius (pixels)")
-    p.add_argument('--corner_threshold', type=float, default=100, help="Corner-detection threshold")
-    p.add_argument('--no_refine', action='store_true')
-    p.add_argument('--no_refine_after_track', action='store_true')
-    return p.parse_args()
 
 def fix_frame(image, bottom):
     image[-bottom:, :] = (0, 0, 0)
@@ -380,7 +430,12 @@ def main(args):
         exit(0)
 
     # Detect saddle point corners in the first frame
-    detector = SaddlePointCornerDetector(nms_radius=args.nms_radius, threshold=args.corner_threshold)
+    detector = SaddlePointCornerDetector(
+        detector=args.detector,
+        ksize=args.detector_ksize,
+        nms_radius=args.detector_nms_radius,
+        threshold=args.detector_threshold,
+        debug=args.detector_debug)
     corners = detect_checkerboard_corners(detector, cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY), args.rows, args.cols, not args.no_refine)
     prev_points = np.array([[kp.x, kp.y] for kp in corners], dtype=np.float32).reshape(-1, 1, 2)
 
@@ -487,4 +542,21 @@ def main(args):
                 file.write(json_line + '\n')
 
 if __name__ == '__main__':
+    def parse_args():
+        import argparse
+        p = argparse.ArgumentParser()
+        p.add_argument('video', type=str, help='Path to the video file.')
+        p.add_argument('--output', type=str, help='Save detected corners to this file (.jsonl)')
+        p.add_argument('--start', type=int, default=0, help='Start tracking on this frame')
+        p.add_argument('--bottom', type=int, default=5, help='Skip N pixels from bottom (issue where the IR images have some artefacts)')
+        p.add_argument("--rows", type=int, default=5, help="Number of rows in the checkerboard")
+        p.add_argument("--cols", type=int, default=8, help="Number of columns in the checkerboard")
+        p.add_argument('--detector', choices=['sobel', 'sobel_simple', 'harris', 'custom'], default='sobel', help='Corner detector type')
+        p.add_argument('--detector_threshold', type=float, default=100, help="Corner-detection threshold")
+        p.add_argument('--detector_ksize', type=int, default=3, help="Corner detector kernel size (must be odd)")
+        p.add_argument('--detector_nms_radius', type=int, default=20, help="Detector non-maximum supression radius (pixels)")
+        p.add_argument('--detector_debug', action="store_true", help="Enable additional detector plots")
+        p.add_argument('--no_refine', action='store_true', help="Do not refine corner points after detection")
+        p.add_argument('--no_refine_after_track', action='store_true', help="Do not refine corner points after tracking")
+        return p.parse_args()
     main(parse_args())

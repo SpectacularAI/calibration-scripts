@@ -159,7 +159,7 @@ def plotDataset(folder, args):
           len(gyroscope["t"]) / (gyroscope["t"][-1] - gyroscope["t"][0]),
           len(gyroscope["t"])))
 
-    fig, subplots = pyplot.subplots(len(plots))
+    fig, subplots = pyplot.subplots(len(plots), sharex=True)
     fig.subplots_adjust(hspace=.5)
     fig.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
 

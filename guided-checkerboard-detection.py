@@ -520,13 +520,13 @@ def main(args):
         while True:
             key = cv2.waitKey(0)
 
-            if key == 32: # space (next frame)
+            if key == 32: # space, next frame
                 break
-            elif key == 114: # 'R' (re-detect corners)
+            elif key == ord('r'): # re-detect corners
                 corners = detect_checkerboard_corners(detector, gray_frame, args.rows, args.cols, not args.no_refine)
                 prev_points = np.array([[kp.x, kp.y] for kp in corners], dtype=np.float32).reshape(-1, 1, 2)
                 break
-            elif key == 100: # 'D' (delete last N results)
+            elif key == ord('d'): # delete last N results
                 for _ in range(DELETE_LAST_N_RESULTS_WHEN_D_PRESSED):
                     if len(serialized_corners) > 0: serialized_corners.pop()
                 good_new = np.array([])
@@ -535,7 +535,7 @@ def main(args):
                 prev_points = np.array([])
                 cv2.imshow(title, draw_tracks(frame.copy(), good_new, good_old))
                 print(f"Deleted last {DELETE_LAST_N_RESULTS_WHEN_D_PRESSED} results")
-            elif key == 113: # 'Q' (quit)
+            elif key == ord('q'): # quit
                 should_quit = True
                 break
 

@@ -1,5 +1,7 @@
-import cv2
 import json
+import pathlib
+
+import cv2
 import numpy as np
 
 DELETE_LAST_N_RESULTS_WHEN_D_PRESSED = 10
@@ -411,6 +413,9 @@ def filter_points_by_motion(points, new_points, max_deviation):
     return np.array([1 if d <= max_deviation else 0 for d in distances])
 
 def main(args):
+    if not pathlib.Path(args.video).exists():
+        print("Video file does not exist:", args.video)
+        exit(0)
     capture = cv2.VideoCapture(args.video)
 
     # Skip frames at start

@@ -282,8 +282,12 @@ def checkerboard_id_to_corner(id, rows):
     col = int(id / (rows - 1))
     return row, col
 
-def fix_frame(image, bottom):
-    image[-bottom:, :] = (0, 0, 0)
+def fix_frame(image, margin):
+    if margin <= 0: return
+    image[:margin, :] = (0, 0, 0)
+    image[-margin:, :] = (0, 0, 0)
+    image[:, :margin] = (0, 0, 0)
+    image[:, -margin:] = (0, 0, 0)
 
 def predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left, rows, cols):
     delta_up_left = (top_left - bottom_left) / (rows - 2)
@@ -392,9 +396,9 @@ def detect_checkerboard_corners(detector, image, rows, cols, refine):
 
     return np.array(corners)
 
-def read_frame(capture, frame_number, bottom):
+def read_frame(capture, frame_number, margin):
     success, frame = capture.read()
-    if success: fix_frame(frame, bottom)
+    if success: fix_frame(frame, margin)
     frame_number += 1
     return success, frame, frame_number
 
@@ -421,14 +425,14 @@ def main(args):
     # Skip frames at start
     frame_number = -1
     for _ in range(args.start):
-        success, frame, frame_number = read_frame(capture, frame_number, args.bottom)
+        success, frame, frame_number = read_frame(capture, frame_number, args.margin)
         if not success:
             print(f"Failed to read frame number {frame_number}")
             capture.release()
             exit(0)
 
     # Read the first frame
-    success, first_frame, frame_number = read_frame(capture, frame_number, args.bottom)
+    success, first_frame, frame_number = read_frame(capture, frame_number, args.margin)
     if not success:
         print("Failed to capture the first frame")
         capture.release()
@@ -450,7 +454,7 @@ def main(args):
 
     should_quit = not capture.isOpened()
     while not should_quit:
-        success, frame, frame_number = read_frame(capture, frame_number, args.bottom)
+        success, frame, frame_number = read_frame(capture, frame_number, args.margin)
         if not success: break
         gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
@@ -553,7 +557,7 @@ if __name__ == '__main__':
         p.add_argument('video', type=str, help='Path to the video file.')
         p.add_argument('--output', type=str, help='Save detected corners to this file (.jsonl)')
         p.add_argument('--start', type=int, default=0, help='Start tracking on this frame')
-        p.add_argument('--bottom', type=int, default=5, help='Skip N pixels from bottom (issue where the IR images have some artefacts)')
+        p.add_argument('--margin', type=int, default=5, help='Mask N pixels from edges of the images (issue where the IR images have some artefacts)')
         p.add_argument("--rows", type=int, default=5, help="Number of rows in the checkerboard")
         p.add_argument("--cols", type=int, default=8, help="Number of columns in the checkerboard")
         p.add_argument('--detector', choices=['sobel', 'sobel_simple', 'harris', 'custom'], default='sobel', help='Corner detector type')

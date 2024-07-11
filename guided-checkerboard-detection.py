@@ -4,7 +4,7 @@ import pathlib
 import cv2
 import numpy as np
 
-DELETE_LAST_N_RESULTS_WHEN_D_PRESSED = 10
+DELETE_LAST_N_RESULTS = 10
 
 MAIN_WINDOW = "Guided checkerboard detection"
 
@@ -512,12 +512,25 @@ def main(args):
         def click_event(event, x, y, flags, param):
             nonlocal corners, prev_points, good_new, good_old
             if event == cv2.EVENT_LBUTTONDOWN:
+                # Delete the closest point from tracked `corners`.
                 kp = select_closest_keypoint(corners, (x, y))
                 if kp is None: return
                 idx = np.where(corners == kp)[0][0]
                 corners = np.delete(corners, idx)
                 good_new = np.delete(good_new, idx, axis=0)
                 good_old = np.delete(good_old, idx, axis=0)
+                # Delete the same point from previous frames as well.
+                for frame_ind in range(min(DELETE_LAST_N_RESULTS, len(serialized_corners))):
+                    x = serialized_corners[len(serialized_corners) - frame_ind - 1]["points2d"]
+                    delete_ind = None
+                    for i, c in enumerate(x):
+                        if c["id"] == kp.id:
+                            delete_ind = i
+                            break
+                    if delete_ind is not None:
+                        del x[delete_ind]
+                    else:
+                        break
             elif event == cv2.EVENT_MBUTTONDOWN or event == cv2.EVENT_RBUTTONDOWN:
                 good_new = np.array([])
                 good_old = np.array([])
@@ -539,14 +552,14 @@ def main(args):
                 prev_points = np.array([[kp.x, kp.y] for kp in corners], dtype=np.float32).reshape(-1, 1, 2)
                 break
             elif key == ord('d'): # delete last N results
-                for _ in range(DELETE_LAST_N_RESULTS_WHEN_D_PRESSED):
+                for _ in range(DELETE_LAST_N_RESULTS):
                     if len(serialized_corners) > 0: serialized_corners.pop()
                 good_new = np.array([])
                 good_old = np.array([])
                 corners = np.array([])
                 prev_points = np.array([])
                 scaled_imshow(args, MAIN_WINDOW, draw_tracks(frame.copy(), good_new, good_old))
-                print(f"Deleted last {DELETE_LAST_N_RESULTS_WHEN_D_PRESSED} results")
+                print(f"Deleted last {DELETE_LAST_N_RESULTS} results")
             elif key == ord('q'): # quit
                 should_quit = True
                 break

@@ -12,6 +12,17 @@ class SaddlePoint:
         self.x = x
         self.y = y
 
+def scaled_imshow(args, name, image):
+    image = cv2.resize(image, None, fx=args.scale_view, fy=args.scale_view)
+    cv2.imshow(name, image)
+
+def set_scaled_mouse_callback(args, name, click_event):
+    def wrapped_click_event(event, x, y, flags, param):
+        x = x / args.scale_view
+        y = y / args.scale_view
+        click_event(event, x, y, flags, param)
+    cv2.setMouseCallback(name, wrapped_click_event)
+
 def refine_corners(args, image, corners, radius=2, refine_itr=2, plot=False):
     h, w = image.shape
 
@@ -56,7 +67,7 @@ def refine_corners(args, image, corners, radius=2, refine_itr=2, plot=False):
         if plot:
             rgb_image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
             cv2.rectangle(rgb_image, (x0,y0), (x1-1, y1-1), (0xff, 0, 0), 1)
-            cv2.imshow('window location', rgb_image)
+            scaled_imshow(args, 'window location', rgb_image)
 
             zoom = 30
             wnd_img = cv2.resize(cv2.cvtColor(wnd, cv2.COLOR_GRAY2RGB), (ww*zoom, ww*zoom), interpolation=cv2.INTER_NEAREST)
@@ -68,12 +79,12 @@ def refine_corners(args, image, corners, radius=2, refine_itr=2, plot=False):
 
             wnd_img = cv2.circle(wnd_img, (cx0, cy0), 2, (0, 0, 0xff), 1)
             wnd_img = cv2.circle(wnd_img, (cx, cy), 3, (0xff, 0, 0), 1)
-            cv2.imshow('window', wnd_img)
+            scaled_imshow(args, 'window', wnd_img)
 
             fitted_image = (coeffs[0] + coeffs[1]*xx + coeffs[2]*yy + coeffs[3]*xx*yy + coeffs[4]*xx**2 + coeffs[5]*yy**2).reshape(wnd.shape)
             error_img = fitted_image - wnd
-            cv2.imshow('fit', fitted_image.astype(np.uint8))
-            cv2.imshow('err', cv2.applyColorMap((np.arctan(error_img)*10 + 128).astype(np.uint8), cv2.COLORMAP_JET))
+            scaled_imshow(args, 'fit', fitted_image.astype(np.uint8))
+            scaled_imshow(args, 'err', cv2.applyColorMap((np.arctan(error_img)*10 + 128).astype(np.uint8), cv2.COLORMAP_JET))
 
             cv2.waitKey(0)
 
@@ -233,14 +244,14 @@ class SaddlePointCornerDetector:
 
         if self.debug:
             image_with_keypoints = cv2.drawKeypoints(image.copy(), keypoints, None, color=(255, 0, 0), flags=0)
-            cv2.imshow('Response', convert_response_to_gray_scale_image(response, min_val=0, max_val=500))
-            cv2.imshow('Image with keypoints', cv2.convertScaleAbs(image_with_keypoints))
+            scaled_imshow(args, 'Response', convert_response_to_gray_scale_image(response, min_val=0, max_val=500))
+            scaled_imshow(args, 'Image with keypoints', cv2.convertScaleAbs(image_with_keypoints))
             cv2.waitKey(0)
             cv2.destroyAllWindows()
 
         return keypoints
 
-def draw_keypoints(image, keypoints, radius=3, color=(255, 0, 0), thickness=-1):
+def draw_keypoints(image, keypoints, radius=2, color=(255, 0, 0), thickness=-1):
     for kp in keypoints:
         image = cv2.circle(image, (int(kp.x), int(kp.y)), radius, color, thickness)
     return image
@@ -335,11 +346,11 @@ def detect_checkerboard_corners(args, detector, image):
             if kp is None: return
             selected_kps.append(kp)
         else: return
-        cv2.imshow(title, draw_keypoints(image_all_keypoints.copy(), selected_kps, color=(0, 255, 0)))
+        scaled_imshow(args, title, draw_keypoints(image_all_keypoints.copy(), selected_kps, color=(0, 255, 0)))
 
     image_all_keypoints = draw_keypoints(image.copy(), keypoints, color=(255, 0, 0))
-    cv2.imshow(title, image_all_keypoints)
-    cv2.setMouseCallback(title, click_event)
+    scaled_imshow(args, title, image_all_keypoints)
+    set_scaled_mouse_callback(args, title, click_event)
 
     while len(selected_kps) < 4:
         key = cv2.waitKey(1)
@@ -379,7 +390,7 @@ def detect_checkerboard_corners(args, detector, image):
         image_checkerboard = image_color.copy()
         draw_keypoints(image_checkerboard, predicted_corners, 3, (255, 0, 0), 1)
         draw_keypoints(image_checkerboard, corners, 3, (0, 255, 0), -1)
-        cv2.imshow(title, image_checkerboard)
+        scaled_imshow(args, title, image_checkerboard)
 
     unrefined_corners = None
     if refine:
@@ -392,8 +403,8 @@ def detect_checkerboard_corners(args, detector, image):
     if unrefined_corners is not None:
         draw_keypoints(image_checkerboard, unrefined_corners, 3, (0, 0, 255), 1)
     draw_keypoints(image_checkerboard, corners, 3, (0, 255, 0), -1)
-    cv2.imshow(title, image_checkerboard)
-    cv2.setMouseCallback(title, click_event)
+    scaled_imshow(args, title, image_checkerboard)
+    set_scaled_mouse_callback(args, title, click_event)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
@@ -516,10 +527,10 @@ def main(args):
                 corners = np.array([])
             else: return
             prev_points = good_new.reshape(-1, 1, 2)
-            cv2.imshow(title, draw_tracks(frame.copy(), good_new, good_old))
+            scaled_imshow(args, title, draw_tracks(frame.copy(), good_new, good_old))
 
-        cv2.imshow(title, draw_tracks(frame.copy(), good_new, good_old))
-        cv2.setMouseCallback(title, click_event)
+        scaled_imshow(args, title, draw_tracks(frame.copy(), good_new, good_old))
+        set_scaled_mouse_callback(args, title, click_event)
         while True:
             key = cv2.waitKey(0)
 
@@ -536,7 +547,7 @@ def main(args):
                 good_old = np.array([])
                 corners = np.array([])
                 prev_points = np.array([])
-                cv2.imshow(title, draw_tracks(frame.copy(), good_new, good_old))
+                scaled_imshow(args, title, draw_tracks(frame.copy(), good_new, good_old))
                 print(f"Deleted last {DELETE_LAST_N_RESULTS_WHEN_D_PRESSED} results")
             elif key == ord('q'): # quit
                 should_quit = True
@@ -570,5 +581,6 @@ if __name__ == '__main__':
         p.add_argument('--detector_debug', action="store_true", help="Enable additional detector plots")
         p.add_argument('--no_refine', action='store_true', help="Do not refine corner points after detection")
         p.add_argument('--no_refine_after_track', action='store_true', help="Do not refine corner points after tracking")
+        p.add_argument('--scale_view', type=float, default=2.0, help="Images larger on screen, does not affect eg corner detection and tracking")
         return p.parse_args()
     main(parse_args())

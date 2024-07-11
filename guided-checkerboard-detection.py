@@ -518,7 +518,7 @@ def main(args):
                 corners = np.delete(corners, idx)
                 good_new = np.delete(good_new, idx, axis=0)
                 good_old = np.delete(good_old, idx, axis=0)
-            elif event == cv2.EVENT_RBUTTONDOWN:
+            elif event == cv2.EVENT_MBUTTONDOWN or event == cv2.EVENT_RBUTTONDOWN:
                 good_new = np.array([])
                 good_old = np.array([])
                 corners = np.array([])

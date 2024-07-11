@@ -389,8 +389,8 @@ def detect_checkerboard_corners(args, detector, image):
         else: return
 
         image_checkerboard = image.copy()
-        draw_keypoints(image_checkerboard, predicted_corners, 3, (255, 0, 0), 1)
-        draw_keypoints(image_checkerboard, corners, 3, (0, 255, 0), -1)
+        draw_keypoints(image_checkerboard, predicted_corners, 1, (255, 0, 0))
+        draw_keypoints(image_checkerboard, corners, 2, (0, 0, 255))
         scaled_imshow(args, MAIN_WINDOW, image_checkerboard)
 
     unrefined_corners = None
@@ -400,10 +400,10 @@ def detect_checkerboard_corners(args, detector, image):
             corners[i] = c
 
     image_checkerboard = image.copy()
-    draw_keypoints(image_checkerboard, predicted_corners, 3, (255, 0, 0), 1)
+    draw_keypoints(image_checkerboard, predicted_corners, 1, (255, 0, 0))
     if unrefined_corners is not None:
-        draw_keypoints(image_checkerboard, unrefined_corners, 3, (0, 0, 255), 1)
-    draw_keypoints(image_checkerboard, corners, 3, (0, 255, 0), -1)
+        draw_keypoints(image_checkerboard, unrefined_corners, 1, (0, 255, 0))
+    draw_keypoints(image_checkerboard, corners, 2, (0, 0, 255))
     scaled_imshow(args, MAIN_WINDOW, image_checkerboard)
     set_scaled_mouse_callback(args, MAIN_WINDOW, click_event)
     cv2.waitKey(0)

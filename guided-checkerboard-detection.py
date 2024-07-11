@@ -436,6 +436,10 @@ def main(args):
         exit(0)
     capture = cv2.VideoCapture(args.video)
 
+    if not capture.isOpened():
+        print("Could not read video:", args.video)
+        exit(0)
+
     # Skip frames at start
     frame_number = -1
     for _ in range(args.start):
@@ -445,13 +449,6 @@ def main(args):
             capture.release()
             exit(0)
 
-    # Read the first frame
-    success, first_frame, frame_number = read_frame(capture, frame_number, args.margin)
-    if not success:
-        print("Failed to capture the first frame")
-        capture.release()
-        exit(0)
-
     # Detect saddle point corners in the first frame
     detector = SaddlePointCornerDetector(
         detector=args.detector,
@@ -459,20 +456,20 @@ def main(args):
         nms_radius=args.detector_nms_radius,
         threshold=args.detector_threshold,
         debug=args.detector_debug)
-    corners = detect_checkerboard_corners(args, detector, first_frame)
-    prev_points = np.array([[kp.x, kp.y] for kp in corners], dtype=np.float32).reshape(-1, 1, 2)
+    corners = np.array([])
+    prev_points = np.array([])
 
     lk_params = dict(winSize=(15, 15), maxLevel=2, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
-    prev_gray = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
-    serialized_corners = [serialize_checkerboard_corners(frame_number, corners)]
+    prev_gray = None
+    serialized_corners = []
 
-    should_quit = not capture.isOpened()
+    should_quit = False
     while not should_quit:
         success, frame, frame_number = read_frame(capture, frame_number, args.margin)
         if not success: break
         gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        if np.shape(prev_points)[0] > 0:
+        if prev_gray is not None and np.shape(prev_points)[0] > 0:
             # Calculate optical flow
             next_points, status, _ = cv2.calcOpticalFlowPyrLK(prev_gray, gray_frame, prev_points, None, **lk_params)
 
@@ -512,7 +509,6 @@ def main(args):
         prev_points = good_new.reshape(-1, 1, 2)
 
         title = '[SPACE]=next, [R]=redetect corners, [D]=delete last N results, [Q]=quit'
-        cv2.setWindowTitle(MAIN_WINDOW, title)
         def click_event(event, x, y, flags, param):
             nonlocal corners, prev_points, good_new, good_old
             if event == cv2.EVENT_LBUTTONDOWN:
@@ -531,6 +527,7 @@ def main(args):
             scaled_imshow(args, MAIN_WINDOW, draw_tracks(frame.copy(), good_new, good_old))
 
         scaled_imshow(args, MAIN_WINDOW, draw_tracks(frame.copy(), good_new, good_old))
+        cv2.setWindowTitle(MAIN_WINDOW, title)
         set_scaled_mouse_callback(args, MAIN_WINDOW, click_event)
         while True:
             key = cv2.waitKey(0)

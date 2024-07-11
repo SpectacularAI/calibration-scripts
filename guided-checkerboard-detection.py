@@ -6,6 +6,8 @@ import numpy as np
 
 DELETE_LAST_N_RESULTS_WHEN_D_PRESSED = 10
 
+MAIN_WINDOW = "Guided checkerboard detection"
+
 class SaddlePoint:
     def __init__(self, id, x, y):
         self.id = id
@@ -347,19 +349,17 @@ def detect_checkerboard_corners(args, detector, image):
             if kp is None: return
             selected_kps.append(kp)
         else: return
-        scaled_imshow(args, title, draw_keypoints(image_all_keypoints.copy(), selected_kps, color=(0, 0, 255)))
+        scaled_imshow(args, MAIN_WINDOW, draw_keypoints(image_all_keypoints.copy(), selected_kps, color=(0, 0, 255)))
 
     image_all_keypoints = draw_keypoints(image.copy(), keypoints, color=(255, 255, 0))
-    scaled_imshow(args, title, image_all_keypoints)
-    set_scaled_mouse_callback(args, title, click_event)
+    scaled_imshow(args, MAIN_WINDOW, image_all_keypoints)
+    set_scaled_mouse_callback(args, MAIN_WINDOW, click_event)
+    cv2.setWindowTitle(MAIN_WINDOW, title)
 
     while len(selected_kps) < 4:
         key = cv2.waitKey(1)
         if key == 32: # space (skip frame)
-            cv2.destroyAllWindows()
             return np.array([])
-
-    cv2.destroyAllWindows()
 
     bottom_left = np.array([selected_kps[0].x, selected_kps[0].y])
     bottom_right = np.array([selected_kps[1].x, selected_kps[1].y])
@@ -378,6 +378,7 @@ def detect_checkerboard_corners(args, detector, image):
 
     title = '[SPACE]=continue, [LEFT-CLICK]=remove closest, [RIGHT-CLICK]=remove all'
     print(title)
+    cv2.setWindowTitle(MAIN_WINDOW, title)
     def click_event(event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
             kp = select_closest_keypoint(corners, (x, y))
@@ -390,7 +391,7 @@ def detect_checkerboard_corners(args, detector, image):
         image_checkerboard = image.copy()
         draw_keypoints(image_checkerboard, predicted_corners, 3, (255, 0, 0), 1)
         draw_keypoints(image_checkerboard, corners, 3, (0, 255, 0), -1)
-        scaled_imshow(args, title, image_checkerboard)
+        scaled_imshow(args, MAIN_WINDOW, image_checkerboard)
 
     unrefined_corners = None
     if refine:
@@ -403,10 +404,9 @@ def detect_checkerboard_corners(args, detector, image):
     if unrefined_corners is not None:
         draw_keypoints(image_checkerboard, unrefined_corners, 3, (0, 0, 255), 1)
     draw_keypoints(image_checkerboard, corners, 3, (0, 255, 0), -1)
-    scaled_imshow(args, title, image_checkerboard)
-    set_scaled_mouse_callback(args, title, click_event)
+    scaled_imshow(args, MAIN_WINDOW, image_checkerboard)
+    set_scaled_mouse_callback(args, MAIN_WINDOW, click_event)
     cv2.waitKey(0)
-    cv2.destroyAllWindows()
 
     return np.array(corners)
 
@@ -512,6 +512,7 @@ def main(args):
         prev_points = good_new.reshape(-1, 1, 2)
 
         title = '[SPACE]=next, [R]=redetect corners, [D]=delete last N results, [Q]=quit'
+        cv2.setWindowTitle(MAIN_WINDOW, title)
         def click_event(event, x, y, flags, param):
             nonlocal corners, prev_points, good_new, good_old
             if event == cv2.EVENT_LBUTTONDOWN:
@@ -527,10 +528,10 @@ def main(args):
                 corners = np.array([])
             else: return
             prev_points = good_new.reshape(-1, 1, 2)
-            scaled_imshow(args, title, draw_tracks(frame.copy(), good_new, good_old))
+            scaled_imshow(args, MAIN_WINDOW, draw_tracks(frame.copy(), good_new, good_old))
 
-        scaled_imshow(args, title, draw_tracks(frame.copy(), good_new, good_old))
-        set_scaled_mouse_callback(args, title, click_event)
+        scaled_imshow(args, MAIN_WINDOW, draw_tracks(frame.copy(), good_new, good_old))
+        set_scaled_mouse_callback(args, MAIN_WINDOW, click_event)
         while True:
             key = cv2.waitKey(0)
 
@@ -547,7 +548,7 @@ def main(args):
                 good_old = np.array([])
                 corners = np.array([])
                 prev_points = np.array([])
-                scaled_imshow(args, title, draw_tracks(frame.copy(), good_new, good_old))
+                scaled_imshow(args, MAIN_WINDOW, draw_tracks(frame.copy(), good_new, good_old))
                 print(f"Deleted last {DELETE_LAST_N_RESULTS_WHEN_D_PRESSED} results")
             elif key == ord('q'): # quit
                 should_quit = True

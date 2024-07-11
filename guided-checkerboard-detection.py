@@ -261,8 +261,8 @@ def draw_tracks(image, good_new, good_old):
         a, b = new.ravel()
         c, d = old.ravel()
         a, b, c, d = int(a), int(b), int(c), int(d)
-        image = cv2.circle(image, (a, b), 3, (0, 255, 0), -1)
-        image = cv2.line(image, (a, b), (c, d), (0, 0, 255), 2)
+        image = cv2.circle(image, (a, b), 2, (0, 0, 255), -1)
+        image = cv2.line(image, (a, b), (c, d), (255, 0, 0), 1)
     return image
 
 def serialize_checkerboard_corners(frame_id, corners):
@@ -334,7 +334,8 @@ def detect_checkerboard_corners(args, detector, image):
     refine = not args.no_refine
     rows = args.rows
     cols = args.cols
-    keypoints = detector.detect(image)
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    keypoints = detector.detect(gray_image)
     keypoints = np.array([SaddlePoint(id, kp.pt[0], kp.pt[1]) for id, kp in enumerate(keypoints)])
 
     title = 'Select checkerboard corners in order: bottom-left, bottom-right, top-right, top-left. [SPACE]=skip image'
@@ -346,9 +347,9 @@ def detect_checkerboard_corners(args, detector, image):
             if kp is None: return
             selected_kps.append(kp)
         else: return
-        scaled_imshow(args, title, draw_keypoints(image_all_keypoints.copy(), selected_kps, color=(0, 255, 0)))
+        scaled_imshow(args, title, draw_keypoints(image_all_keypoints.copy(), selected_kps, color=(0, 0, 255)))
 
-    image_all_keypoints = draw_keypoints(image.copy(), keypoints, color=(255, 0, 0))
+    image_all_keypoints = draw_keypoints(image.copy(), keypoints, color=(255, 255, 0))
     scaled_imshow(args, title, image_all_keypoints)
     set_scaled_mouse_callback(args, title, click_event)
 
@@ -377,7 +378,6 @@ def detect_checkerboard_corners(args, detector, image):
 
     title = '[SPACE]=continue, [LEFT-CLICK]=remove closest, [RIGHT-CLICK]=remove all'
     print(title)
-    image_color = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
     def click_event(event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
             kp = select_closest_keypoint(corners, (x, y))
@@ -387,7 +387,7 @@ def detect_checkerboard_corners(args, detector, image):
             corners.clear()
         else: return
 
-        image_checkerboard = image_color.copy()
+        image_checkerboard = image.copy()
         draw_keypoints(image_checkerboard, predicted_corners, 3, (255, 0, 0), 1)
         draw_keypoints(image_checkerboard, corners, 3, (0, 255, 0), -1)
         scaled_imshow(args, title, image_checkerboard)
@@ -395,10 +395,10 @@ def detect_checkerboard_corners(args, detector, image):
     unrefined_corners = None
     if refine:
         unrefined_corners = corners[:]
-        for i, c in enumerate(refine_corners(args, image, corners)):
+        for i, c in enumerate(refine_corners(args, gray_image, corners)):
             corners[i] = c
 
-    image_checkerboard = image_color.copy()
+    image_checkerboard = image.copy()
     draw_keypoints(image_checkerboard, predicted_corners, 3, (255, 0, 0), 1)
     if unrefined_corners is not None:
         draw_keypoints(image_checkerboard, unrefined_corners, 3, (0, 0, 255), 1)
@@ -459,7 +459,7 @@ def main(args):
         nms_radius=args.detector_nms_radius,
         threshold=args.detector_threshold,
         debug=args.detector_debug)
-    corners = detect_checkerboard_corners(args, detector, cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY))
+    corners = detect_checkerboard_corners(args, detector, first_frame)
     prev_points = np.array([[kp.x, kp.y] for kp in corners], dtype=np.float32).reshape(-1, 1, 2)
 
     lk_params = dict(winSize=(15, 15), maxLevel=2, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
@@ -537,7 +537,7 @@ def main(args):
             if key == 32: # space, next frame
                 break
             elif key == ord('r'): # re-detect corners
-                corners = detect_checkerboard_corners(args, detector, gray_frame)
+                corners = detect_checkerboard_corners(args, detector, frame)
                 prev_points = np.array([[kp.x, kp.y] for kp in corners], dtype=np.float32).reshape(-1, 1, 2)
                 break
             elif key == ord('d'): # delete last N results

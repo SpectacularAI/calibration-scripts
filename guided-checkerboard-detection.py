@@ -12,7 +12,7 @@ class SaddlePoint:
         self.x = x
         self.y = y
 
-def refine_corners(image, corners, radius=2, refine_itr=2, plot=False):
+def refine_corners(args, image, corners, radius=2, refine_itr=2, plot=False):
     h, w = image.shape
 
     def do_refine(c):
@@ -319,7 +319,10 @@ def select_closest_keypoint(keypoints, point, radius=20):
             closest_dist = dist
     return closest_kp
 
-def detect_checkerboard_corners(detector, image, rows, cols, refine):
+def detect_checkerboard_corners(args, detector, image):
+    refine = not args.no_refine
+    rows = args.rows
+    cols = args.cols
     keypoints = detector.detect(image)
     keypoints = np.array([SaddlePoint(id, kp.pt[0], kp.pt[1]) for id, kp in enumerate(keypoints)])
 
@@ -381,7 +384,7 @@ def detect_checkerboard_corners(detector, image, rows, cols, refine):
     unrefined_corners = None
     if refine:
         unrefined_corners = corners[:]
-        for i, c in enumerate(refine_corners(image, corners)):
+        for i, c in enumerate(refine_corners(args, image, corners)):
             corners[i] = c
 
     image_checkerboard = image_color.copy()
@@ -445,7 +448,7 @@ def main(args):
         nms_radius=args.detector_nms_radius,
         threshold=args.detector_threshold,
         debug=args.detector_debug)
-    corners = detect_checkerboard_corners(detector, cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY), args.rows, args.cols, not args.no_refine)
+    corners = detect_checkerboard_corners(args, detector, cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY))
     prev_points = np.array([[kp.x, kp.y] for kp in corners], dtype=np.float32).reshape(-1, 1, 2)
 
     lk_params = dict(winSize=(15, 15), maxLevel=2, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
@@ -487,7 +490,7 @@ def main(args):
                 corners[i].y = float(good_new[i][1])
 
             if not args.no_refine_after_track:
-                for i, c in enumerate(refine_corners(gray_frame, corners)):
+                for i, c in enumerate(refine_corners(args, gray_frame, corners)):
                     corners[i] = c
         else:
             good_new = np.array([])
@@ -523,7 +526,7 @@ def main(args):
             if key == 32: # space, next frame
                 break
             elif key == ord('r'): # re-detect corners
-                corners = detect_checkerboard_corners(detector, gray_frame, args.rows, args.cols, not args.no_refine)
+                corners = detect_checkerboard_corners(args, detector, gray_frame)
                 prev_points = np.array([[kp.x, kp.y] for kp in corners], dtype=np.float32).reshape(-1, 1, 2)
                 break
             elif key == ord('d'): # delete last N results

@@ -422,13 +422,25 @@ def filter_points_by_border(points, image_shape, border_margin):
     h, w = image_shape[:2]
     return np.array([1 if border_margin <= p[0] <= w - border_margin and border_margin <= p[1] <= h - border_margin else 0 for p in points])
 
-def filter_points_by_motion(points, new_points, max_deviation):
+def compute_edge_distances(args, points, gray_frame):
+    distances = []
+    for p in points:
+        distances.append(min([p[0], p[1], gray_frame.shape[1] - p[0], gray_frame.shape[0] - p[1]]))
+    return distances
+
+def filter_points_by_motion(args, points, new_points, gray_frame, max_deviation):
     """Filter out points that deviate significantly from the median motion."""
+    # If the camera rotates around the optical axis, then the feature motions are naturally different.
+    # That's why this only rejects points near the image edges where it's more likely that the tracker
+    # makes a bad mistake.
     if len(points) == 0: return np.array([])
     motions = new_points - points
+    edge_distances = compute_edge_distances(args, new_points, gray_frame)
     median_motion = np.median(motions, axis=0)
     distances = np.linalg.norm(motions - median_motion, axis=1)
-    return np.array([1 if d <= max_deviation else 0 for d in distances])
+    def check(d, e):
+        return 0 if d > max_deviation and e < args.filter_by_movement_direction_margin else 1
+    return np.array([check(d, e) for d, e in zip(distances, edge_distances)])
 
 def main(args):
     if not pathlib.Path(args.video).exists():
@@ -481,13 +493,14 @@ def main(args):
             corners = corners[status == 1]
 
             # 2) Proximity to image borders
-            status = filter_points_by_border(good_new, gray_frame.shape, border_margin=20)
+            border_margin = args.margin + args.reject_margin
+            status = filter_points_by_border(good_new, gray_frame.shape, border_margin=border_margin)
             good_new = good_new[status == 1]
             good_old = good_old[status == 1]
             corners = corners[status == 1]
 
             # 3) Motion, all points should move roughly in the same direction
-            status = filter_points_by_motion(good_new, good_old, max_deviation=5.0)
+            status = filter_points_by_motion(args, good_new, good_old, gray_frame, max_deviation=5.0)
             good_new = good_new[status == 1]
             good_old = good_old[status == 1]
             corners = corners[status == 1]
@@ -582,7 +595,7 @@ if __name__ == '__main__':
         p.add_argument('video', type=str, help='Path to the video file.')
         p.add_argument('--output', type=str, help='Save detected corners to this file (.jsonl)')
         p.add_argument('--start', type=int, default=0, help='Start tracking on this frame')
-        p.add_argument('--margin', type=int, default=5, help='Mask N pixels from edges of the images (issue where the IR images have some artefacts)')
+        p.add_argument('--margin', type=int, default=3, help='Mask N pixels from edges of the images (issue where the IR images have some artefacts)')
         p.add_argument("--rows", type=int, default=5, help="Number of rows in the checkerboard")
         p.add_argument("--cols", type=int, default=8, help="Number of columns in the checkerboard")
         p.add_argument('--detector', choices=['sobel', 'sobel_simple', 'harris', 'custom'], default='sobel', help='Corner detector type')
@@ -592,6 +605,8 @@ if __name__ == '__main__':
         p.add_argument('--detector_debug', action="store_true", help="Enable additional detector plots")
         p.add_argument('--no_refine', action='store_true', help="Do not refine corner points after detection")
         p.add_argument('--no_refine_after_track', action='store_true', help="Do not refine corner points after tracking")
+        p.add_argument('--reject_margin', type=int, default=10, help='Reject features this close to the image edge (or black margin) because tracking is likely to fail')
+        p.add_argument('--filter_by_movement_direction_margin', type=float, default=40, help="Remove features this close to the edges that move differently from the average")
         p.add_argument('--scale_view', type=float, default=2.0, help="Images larger on screen, does not affect eg corner detection and tracking")
         return p.parse_args()
     main(parse_args())

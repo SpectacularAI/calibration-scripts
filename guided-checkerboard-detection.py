@@ -267,6 +267,11 @@ def draw_tracks(image, good_new, good_old):
         image = cv2.line(image, (a, b), (c, d), (255, 0, 0), 1)
     return image
 
+def draw_duplicate(image):
+    cv2.line(image, (0, 0), (image.shape[1], image.shape[0]), (0, 0, 255), 3)
+    cv2.line(image, (0, image.shape[0]), (image.shape[1], 0), (0, 0, 255), 3)
+    return image
+
 def serialize_checkerboard_corners(frame_id, corners):
     def serialize_corner(corner):
         corner_json = {
@@ -481,7 +486,13 @@ def main(args):
         if not success: break
         gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        if prev_gray is not None and np.shape(prev_points)[0] > 0:
+        duplicate = False
+        if prev_gray is not None:
+            eps = gray_frame.shape[0] * gray_frame.shape[1] * args.duplicate_image_threshold;
+            if cv2.norm(gray_frame, prev_gray, cv2.NORM_L1) < eps:
+                duplicate = True
+
+        if prev_gray is not None and np.shape(prev_points)[0] > 0 and not duplicate:
             # Calculate optical flow
             next_points, status, _ = cv2.calcOpticalFlowPyrLK(prev_gray, gray_frame, prev_points, None, **lk_params)
 
@@ -523,7 +534,10 @@ def main(args):
 
         title = '[SPACE]=next, [R]=redetect corners, [D]=delete last N results, [Q]=quit'
         def click_event(event, x, y, flags, param):
-            nonlocal corners, prev_points, good_new, good_old
+            nonlocal corners, prev_points, good_new, good_old, duplicate
+
+            if duplicate: return
+
             if event == cv2.EVENT_LBUTTONDOWN:
                 # Delete the closest point from tracked `corners`.
                 kp = select_closest_keypoint(corners, (x, y))
@@ -552,15 +566,18 @@ def main(args):
             prev_points = good_new.reshape(-1, 1, 2)
             scaled_imshow(args, MAIN_WINDOW, draw_tracks(frame.copy(), good_new, good_old))
 
-        scaled_imshow(args, MAIN_WINDOW, draw_tracks(frame.copy(), good_new, good_old))
+        if duplicate:
+            scaled_imshow(args, MAIN_WINDOW, draw_duplicate(frame.copy()))
+        else:
+            scaled_imshow(args, MAIN_WINDOW, draw_tracks(frame.copy(), good_new, good_old))
         cv2.setWindowTitle(MAIN_WINDOW, title)
         set_scaled_mouse_callback(args, MAIN_WINDOW, click_event)
+
         while True:
             key = cv2.waitKey(0)
-
             if key == 32: # space, next frame
                 break
-            elif key == ord('r'): # re-detect corners
+            elif key == ord('r') and not duplicate: # re-detect corners
                 corners = detect_checkerboard_corners(args, detector, frame)
                 prev_points = np.array([[kp.x, kp.y] for kp in corners], dtype=np.float32).reshape(-1, 1, 2)
                 break
@@ -608,5 +625,6 @@ if __name__ == '__main__':
         p.add_argument('--reject_margin', type=int, default=10, help='Reject features this close to the image edge (or black margin) because tracking is likely to fail')
         p.add_argument('--filter_by_movement_direction_margin', type=float, default=40, help="Remove features this close to the edges that move differently from the average")
         p.add_argument('--scale_view', type=float, default=2.0, help="Images larger on screen, does not affect eg corner detection and tracking")
+        p.add_argument('--duplicate_image_threshold', type=float, default=0.1, help="If duplicate frames exist and are not detected properly, make this value larger. In case of false positives, make smaller.")
         return p.parse_args()
     main(parse_args())

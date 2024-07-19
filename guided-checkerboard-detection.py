@@ -246,8 +246,8 @@ class SaddlePointCornerDetector:
 
         if self.debug:
             image_with_keypoints = cv2.drawKeypoints(image.copy(), keypoints, None, color=(255, 0, 0), flags=0)
-            scaled_imshow(args, 'Response', convert_response_to_gray_scale_image(response, min_val=0, max_val=500))
-            scaled_imshow(args, 'Image with keypoints', cv2.convertScaleAbs(image_with_keypoints))
+            cv2.imshow('Response', convert_response_to_gray_scale_image(response, min_val=0, max_val=500))
+            cv2.imshow('Image with keypoints', cv2.convertScaleAbs(image_with_keypoints))
             cv2.waitKey(0)
             cv2.destroyAllWindows()
 

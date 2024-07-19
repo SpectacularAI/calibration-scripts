@@ -25,6 +25,16 @@ def set_scaled_mouse_callback(args, name, click_event):
         click_event(event, x, y, flags, param)
     cv2.setMouseCallback(name, wrapped_click_event)
 
+def rolling_max_2d(array, window_size):
+    from scipy.ndimage import maximum_filter
+    # Apply rolling maximum to each row
+    row_max = np.apply_along_axis(lambda m: maximum_filter(m, size=window_size, mode='nearest'), axis=1, arr=array)
+
+    # Apply rolling maximum to each column
+    col_max = np.apply_along_axis(lambda m: maximum_filter(m, size=window_size, mode='nearest'), axis=0, arr=row_max)
+
+    return col_max
+
 def refine_corners(args, image, corners, radius=2, refine_itr=2, plot=False):
     h, w = image.shape
 
@@ -106,6 +116,42 @@ def refine_corners(args, image, corners, radius=2, refine_itr=2, plot=False):
             yield(c)
 
     if plot: cv2.destroyAllWindows()
+
+def pick_key_points(responses, nms_radius, threshold):
+    rolling_maxima = rolling_max_2d(responses, nms_radius)
+    is_max = responses == rolling_maxima
+
+    is_kp = is_max & (responses > threshold)
+
+    keypoints = np.argwhere(is_kp)
+    keypoints = keypoints.astype(np.float32)
+    keypoint_responses = responses[is_kp]
+
+    if len(keypoints) == 0: return [], rolling_maxima
+
+    # Sort keypoints by response in descending order
+    indices = np.argsort(-keypoint_responses)
+    sorted_keypoints = keypoints[indices]
+    sorted_responses = keypoint_responses[indices]
+
+    # To keep track of suppressed keypoints
+    suppressed = np.zeros(len(keypoints), dtype=bool)
+    nms_keypoints = []
+
+    for i in range(len(sorted_keypoints)):
+        if suppressed[i]:
+            continue
+
+        kp = sorted_keypoints[i]
+        nms_keypoints.append(cv2.KeyPoint(kp[1], kp[0], sorted_responses[i]))
+
+        # Calculate distances to remaining keypoints
+        dists = np.sqrt(np.sum((sorted_keypoints[i+1:] - kp) ** 2, axis=1))
+
+        # Suppress all keypoints within the nms_radius
+        suppressed[i+1:] = suppressed[i+1:] | (dists < nms_radius)
+
+    return nms_keypoints, rolling_maxima
 
 class SaddlePointCornerDetector:
     def __init__(self, detector="sobel", ksize=3, threshold=100, nms_enabled=True, nms_radius=30, debug=False):
@@ -191,33 +237,6 @@ class SaddlePointCornerDetector:
             response = np.maximum(0, np.minimum(max_val, response) - min_val) / (max_val - min_val) * 255
             return response.astype(np.uint8)
 
-        def apply_nms(keypoints, responses, nms_radius):
-            if len(keypoints) == 0: return []
-
-            # Sort keypoints by response in descending order
-            indices = np.argsort(-responses)
-            sorted_keypoints = keypoints[indices]
-            sorted_responses = responses[indices]
-
-            # To keep track of suppressed keypoints
-            suppressed = np.zeros(len(keypoints), dtype=bool)
-            nms_keypoints = []
-
-            for i in range(len(sorted_keypoints)):
-                if suppressed[i]:
-                    continue
-
-                kp = sorted_keypoints[i]
-                nms_keypoints.append(cv2.KeyPoint(kp[1], kp[0], sorted_responses[i]))
-
-                # Calculate distances to remaining keypoints
-                dists = np.sqrt(np.sum((sorted_keypoints[i+1:] - kp) ** 2, axis=1))
-
-                # Suppress all keypoints within the nms_radius
-                suppressed[i+1:] = suppressed[i+1:] | (dists < nms_radius)
-
-            return nms_keypoints
-
         if len(image.shape) > 2:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             gray = np.float32(gray)
@@ -225,19 +244,13 @@ class SaddlePointCornerDetector:
             gray = image
 
         response = self.response(gray)
-        keypoints = np.argwhere(response > self.threshold)
-        keypoints = keypoints.astype(np.float32)
-        keypoint_responses = response[response > self.threshold]
-
-        if self.nms_enabled:
-            keypoints = apply_nms(keypoints, keypoint_responses, self.nms_radius)
-        else:
-            keypoints = [cv2.KeyPoint(pt[1], pt[0], 1) for pt in keypoints]
+        keypoints, maxima = pick_key_points(response, self.nms_radius, self.threshold)
 
         if self.debug:
             image_with_keypoints = cv2.drawKeypoints(image.copy(), keypoints, None, color=(255, 0, 0), flags=0)
             cv2.imshow('Response', convert_response_to_gray_scale_image(response, min_val=0, max_val=500))
             cv2.imshow('Image with keypoints', cv2.convertScaleAbs(image_with_keypoints))
+            cv2.imshow('Rolling maxima', convert_response_to_gray_scale_image(maxima, min_val=0, max_val=500))
             cv2.waitKey(0)
             cv2.destroyAllWindows()
 
@@ -606,7 +619,7 @@ if __name__ == '__main__':
         p.add_argument("--rows", type=int, default=5, help="Number of rows in the checkerboard")
         p.add_argument("--cols", type=int, default=8, help="Number of columns in the checkerboard")
         p.add_argument('--detector', choices=['sobel', 'sobel_simple', 'harris', 'custom'], default='sobel', help='Corner detector type')
-        p.add_argument('--detector_threshold', type=float, default=100, help="Corner-detection threshold")
+        p.add_argument('--detector_threshold', type=float, default=50, help="Corner-detection threshold")
         p.add_argument('--detector_ksize', type=int, default=3, help="Corner detector kernel size (must be odd)")
         p.add_argument('--detector_nms_radius', type=int, default=20, help="Detector non-maximum supression radius (pixels)")
         p.add_argument('--detector_debug', action="store_true", help="Enable additional detector plots")

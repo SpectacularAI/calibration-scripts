@@ -140,6 +140,46 @@ class SaddlePointCornerDetector:
                     kernel[i, j] = 1
         return kernel
 
+    def response(self, gray):
+        def sobel():
+            I_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=self.ksize)
+            I_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=self.ksize)
+            I_xx = cv2.Sobel(I_x, cv2.CV_64F, 1, 0, ksize=self.ksize)
+            I_yy = cv2.Sobel(I_y, cv2.CV_64F, 0, 1, ksize=self.ksize)
+            I_xy = cv2.Sobel(I_x, cv2.CV_64F, 0, 1, ksize=self.ksize)
+
+            p = I_xx * I_yy - I_xy**2
+            m = 0.5*(I_xx + I_yy)
+            l1 = m + np.sqrt(m**2 - p)
+            l2 = m - np.sqrt(m**2 - p)
+
+            response = -np.sign(l1*l2) * np.minimum(np.abs(l1), np.abs(l2))
+            return response
+
+        def sobel_simple():
+            I_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=self.ksize)
+            I_xy = cv2.Sobel(I_x, cv2.CV_64F, 0, 1, ksize=self.ksize)
+            return np.abs(I_xy)
+
+        def harris():
+            return cv2.cornerHarris(np.float32(gray), blockSize=7, ksize=self.ksize, k=0.04)
+
+        def custom():
+            response = cv2.filter2D(gray, cv2.CV_64F, self.kernel)
+            return np.abs(response)
+
+        func = {
+            'sobel': sobel,
+            'sobel_simple': sobel_simple,
+            'harris': harris,
+            'custom': custom,
+        }.get(self.detector, None)
+
+        if func is None:
+            raise RuntimeError(f"Invalid detector: {self.detector}")
+
+        return func()
+
     def detect(self, image):
         def convert_response_to_gray_scale_image(response, min_val=None, max_val=None):
             response[response < self.threshold] = 0
@@ -184,60 +224,10 @@ class SaddlePointCornerDetector:
         else:
             gray = image
 
-        def detect_corners_sobel():
-            I_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=self.ksize)
-            I_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=self.ksize)
-            I_xx = cv2.Sobel(I_x, cv2.CV_64F, 1, 0, ksize=self.ksize)
-            I_yy = cv2.Sobel(I_y, cv2.CV_64F, 0, 1, ksize=self.ksize)
-            I_xy = cv2.Sobel(I_x, cv2.CV_64F, 0, 1, ksize=self.ksize)
-
-            p = I_xx * I_yy - I_xy**2
-            m = 0.5*(I_xx + I_yy)
-            l1 = m + np.sqrt(m**2 - p)
-            l2 = m - np.sqrt(m**2 - p)
-
-            response = -np.sign(l1*l2) * np.minimum(np.abs(l1), np.abs(l2))
-            keypoints = np.argwhere(response > self.threshold)
-            keypoints = keypoints.astype(np.float32)
-            keypoint_responses = response[response > self.threshold]
-            return response, keypoints, keypoint_responses
-
-        def detect_corners_sobel_simple():
-            I_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=self.ksize)
-            I_xy = cv2.Sobel(I_x, cv2.CV_64F, 0, 1, ksize=self.ksize)
-
-            response = np.abs(I_xy)
-            keypoints = np.argwhere(response > self.threshold)
-            keypoints = keypoints.astype(np.float32)
-            keypoint_responses = response[response > self.threshold]
-            return response, keypoints, keypoint_responses
-
-        def detect_corners_harris():
-            response = cv2.cornerHarris(np.float32(gray), blockSize=7, ksize=self.ksize, k=0.04)
-            keypoints = np.argwhere(response > self.threshold)
-            keypoints = keypoints.astype(np.float32)
-            keypoint_responses = response[response > self.threshold]
-            return response, keypoints, keypoint_responses
-
-        def detect_corners_custom():
-            response = cv2.filter2D(gray, cv2.CV_64F, self.kernel)
-            response = np.abs(response)
-            keypoints = np.argwhere(response > self.threshold)
-            keypoints = keypoints.astype(np.float32)
-            keypoint_responses = response[response > self.threshold]
-            return response, keypoints, keypoint_responses
-
-        if self.detector == "sobel":
-            response, keypoints, keypoint_responses = detect_corners_sobel()
-        elif self.detector == "sobel_simple":
-            response, keypoints, keypoint_responses = detect_corners_sobel_simple()
-        elif self.detector == "harris":
-            response, keypoints, keypoint_responses = detect_corners_harris()
-        elif self.detector == "custom":
-            response, keypoints, keypoint_responses = detect_corners_custom()
-        else:
-            print(f"Invalid detector: {self.detector}")
-            exit(0)
+        response = self.response(gray)
+        keypoints = np.argwhere(response > self.threshold)
+        keypoints = keypoints.astype(np.float32)
+        keypoint_responses = response[response > self.threshold]
 
         if self.nms_enabled:
             keypoints = apply_nms(keypoints, keypoint_responses, self.nms_radius)

@@ -11,8 +11,8 @@ MAIN_WINDOW = "Guided checkerboard detection"
 class SaddlePoint:
     def __init__(self, id, x, y):
         self.id = id
-        self.x = x
-        self.y = y
+        self.x = float(x)
+        self.y = float(y)
 
 def scaled_imshow(args, name, image):
     image = cv2.resize(image, None, fx=args.scale_view, fy=args.scale_view)
@@ -35,8 +35,46 @@ def rolling_max_2d(array, window_size):
 
     return col_max
 
-def refine_corners(args, image, corners, radius=2, refine_itr=2, plot=False):
+def custom_slow_response(image, x, y, radius):
     h, w = image.shape
+
+    x0 = int(x - radius)
+    y0 = int(y - radius)
+    ww = radius*2 + 1
+    x1 = x0 + ww
+    y1 = y0 + ww
+
+    if x0 < 0 or y0 < 0 or x1 > w or y1 > h:
+        return 0
+
+    wnd = image[y0:y1, x0:x1]
+    cross_diff = wnd[:radius, :] - wnd[-1:radius:-1, ::-1]
+    y_diff = wnd[:radius, :] - wnd[-1:radius:-1, :]
+    x_diff = wnd[:, :radius] - wnd[:, -1:radius:-1]
+    return (min(np.mean(y_diff**2), np.mean(x_diff**2)) - np.mean(cross_diff**2))*3
+
+def refine_corners(args, image, responses, corners, radius=4, refine_itr=2, reselect_maxima=True, plot=False):
+    h, w = image.shape
+
+    if responses is None: reselect_maxima = False
+
+    def reselect_local_maximum(c, r):
+        x0 = int(c.x - r)
+        y0 = int(c.y - r)
+        ww = r*2 + 1
+        x1 = x0 + ww
+        y1 = y0 + ww
+        if x0 < 0 or y0 < 0 or x1 > w or y1 > h:
+            return None
+
+        wnd = responses[y0:y1, x0:x1]
+        m = np.max(wnd)
+        maxima = np.argwhere(wnd == m)
+        if m < args.detector_threshold: return None
+
+        assert len(maxima) >= 1
+        iy, ix = maxima[0]
+        return SaddlePoint(c.id, x0 + ix, y0 + iy)
 
     def do_refine(c):
         x0 = int(c.x - radius)
@@ -104,16 +142,25 @@ def refine_corners(args, image, corners, radius=2, refine_itr=2, plot=False):
 
     for c in corners:
         c_orig = c
-        for _ in range(refine_itr):
-            c1 = do_refine(c)
-            if c1 is None: break
-            c = c1
+        if reselect_maxima:
+            RESELECT_SEARCH_R = 10
+            MAX_JUMP = 5
+            c = reselect_local_maximum(c, r=RESELECT_SEARCH_R)
+            if c is not None and max(abs(c.x - c_orig.x), abs(c.y - c_orig.y)) > MAX_JUMP:
+                c = c_orig
 
-        MAX_CHANGE = 2.5
-        if max(abs(c.x - c_orig.x), abs(c.y - c_orig.y)) > MAX_CHANGE:
-            yield(c_orig)
-        else:
-            yield(c)
+        if c is not None:
+            c_orig = c
+            for _ in range(refine_itr):
+                c1 = do_refine(c)
+                if c1 is None: break
+                c = c1
+
+            MAX_CHANGE = 2.5
+            if max(abs(c.x - c_orig.x), abs(c.y - c_orig.y)) > MAX_CHANGE:
+                c = c_orig
+
+        yield(c)
 
     if plot: cv2.destroyAllWindows()
 
@@ -214,11 +261,19 @@ class SaddlePointCornerDetector:
             response = cv2.filter2D(gray, cv2.CV_64F, self.kernel)
             return np.abs(response)
 
+        def custom_slow():
+            response = np.zeros_like(gray, dtype=float)
+            for y in range(gray.shape[0]):
+                for x in range(gray.shape[1]):
+                    response[y, x] = custom_slow_response(gray, x, y, radius=self.ksize)
+            return response
+
         func = {
             'sobel': sobel,
             'sobel_simple': sobel_simple,
             'harris': harris,
             'custom': custom,
+            'custom_slow': custom_slow,
         }.get(self.detector, None)
 
         if func is None:
@@ -404,7 +459,7 @@ def detect_checkerboard_corners(args, detector, image):
     unrefined_corners = None
     if refine:
         unrefined_corners = corners[:]
-        for i, c in enumerate(refine_corners(args, gray_image, corners)):
+        for i, c in enumerate(refine_corners(args, gray_image, None, corners)):
             corners[i] = c
 
     image_checkerboard = image.copy()
@@ -449,6 +504,16 @@ def filter_points_by_motion(args, points, new_points, gray_frame, max_deviation)
     def check(d, e):
         return 0 if d > max_deviation and e < args.filter_by_movement_direction_margin else 1
     return np.array([check(d, e) for d, e in zip(distances, edge_distances)])
+
+def filter_points_by_proximity(points, threshold):
+    if len(points) == 0: return np.array([])
+    points_c = points[:, 0] + 1j*points[:, 1]
+    #print(points_c)
+    dist_mat = np.abs(points_c[:, np.newaxis] - points_c[np.newaxis, :])
+    dist_mat += np.eye(dist_mat.shape[0]) * 1000
+    min_dist = np.min(dist_mat, axis=1)
+    median_min_dist = np.median(min_dist)
+    return (min_dist > median_min_dist*(1-threshold)) & (min_dist < median_min_dist*(1+threshold))
 
 def main(args):
     if not pathlib.Path(args.video).exists():
@@ -513,20 +578,37 @@ def main(args):
             good_old = good_old[status == 1]
             corners = corners[status == 1]
 
-            # 3) Motion, all points should move roughly in the same direction
-            status = filter_points_by_motion(args, good_new, good_old, gray_frame, max_deviation=5.0)
-            good_new = good_new[status == 1]
-            good_old = good_old[status == 1]
-            corners = corners[status == 1]
-
             # Update corner positions
             for i in range(len(corners)):
                 corners[i].x = float(good_new[i][0])
                 corners[i].y = float(good_new[i][1])
 
             if not args.no_refine_after_track:
-                for i, c in enumerate(refine_corners(args, gray_frame, corners)):
-                    corners[i] = c
+                status = np.ones(corners.shape[0])
+                for i, c in enumerate(refine_corners(args, gray_frame, detector.response(gray_frame), corners)):
+                    if c is None:
+                        status[i] = 0
+                    else:
+                        corners[i] = c
+                        # TODO: clean this up!
+                        good_new[i][0] = c.x
+                        good_new[i][1] = c.y
+
+                good_new = good_new[status == 1]
+                good_old = good_old[status == 1]
+                corners = corners[status == 1]
+
+            # 3) Motion, all points should move roughly in the same direction
+            status = filter_points_by_motion(args, good_new, good_old, gray_frame, max_deviation=5.0)
+            good_new = good_new[status == 1]
+            good_old = good_old[status == 1]
+            corners = corners[status == 1]
+
+            # 4) Proximity, points should not be too close to each other
+            status = filter_points_by_proximity(good_new, threshold=0.4)
+            good_new = good_new[status == 1]
+            good_old = good_old[status == 1]
+            corners = corners[status == 1]
         else:
             good_new = np.array([])
             good_old = np.array([])
@@ -618,7 +700,7 @@ if __name__ == '__main__':
         p.add_argument('--margin', type=int, default=3, help='Mask N pixels from edges of the images (issue where the IR images have some artefacts)')
         p.add_argument("--rows", type=int, default=5, help="Number of rows in the checkerboard")
         p.add_argument("--cols", type=int, default=8, help="Number of columns in the checkerboard")
-        p.add_argument('--detector', choices=['sobel', 'sobel_simple', 'harris', 'custom'], default='sobel', help='Corner detector type')
+        p.add_argument('--detector', choices=['sobel', 'sobel_simple', 'harris', 'custom', 'custom_slow'], default='sobel', help='Corner detector type')
         p.add_argument('--detector_threshold', type=float, default=50, help="Corner-detection threshold")
         p.add_argument('--detector_ksize', type=int, default=3, help="Corner detector kernel size (must be odd)")
         p.add_argument('--detector_nms_radius', type=int, default=20, help="Detector non-maximum supression radius (pixels)")

@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 def read_jsonl(file_path):
     """
     Reads a JSONL file and returns a list of dictionaries.
-    
+
     :param file_path: Path to the JSONL file.
     :return: List of dictionaries containing data from each JSON line.
     """
@@ -18,7 +18,7 @@ def read_jsonl(file_path):
 def extract_points(data):
     """
     Extracts 2D points from the data.
-    
+
     :param data: List of dictionaries containing 'points2d'.
     :return: List of tuples representing 2D points.
     """
@@ -31,14 +31,14 @@ def extract_points(data):
 def plot_points(points, width, height):
     """
     Plots the 2D points using matplotlib with specified bounds.
-    
+
     :param points: List of tuples representing 2D points.
     :param width: Width bound for the plot.
     :param height: Height bound for the plot.
     """
     x_values = [point[0] for point in points]
     y_values = [point[1] for point in points]
-    
+
     plt.scatter(x_values, y_values, c='blue', marker='o', alpha=0.3, s=1)
     plt.xlim(0, width)
     plt.ylim(0, height)
@@ -51,7 +51,7 @@ def plot_points(points, width, height):
 def main(file_path, resolution):
     # Parse the resolution argument
     width, height = map(int, resolution.split('x'))
-    
+
     data = read_jsonl(file_path)
     points = extract_points(data)
     plot_points(points, width, height)

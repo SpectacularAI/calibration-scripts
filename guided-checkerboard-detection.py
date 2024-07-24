@@ -384,10 +384,9 @@ def predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left,
         for j in range(cols - 1):
             shifted_col_positions[j] *= m
 
-    def col_pos(j):
-        if adjust_prediction[0] == 0:
-            return j * delta_right_bottom
-        return shifted_col_positions[j] * delta_right_bottom
+    def adjust_col_ind(j):
+        if adjust_prediction[0] == 0: return j
+        return shifted_col_positions[j]
 
     def lerp(start, stop, w):
         return w * start + (1.0 - w) * stop
@@ -396,9 +395,10 @@ def predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left,
     corners = []
     for j in range(cols - 1):
         for i in range(rows - 1):
-            w = 1.0 - j / (cols - 2)
+            j_adj = adjust_col_ind(j)
+            w = 1.0 - j_adj / (cols - 2)
             id = checkerboard_corner_to_id(i, j, rows)
-            xy = bottom_left + col_pos(j) + lerp(delta_up_left, delta_up_right, w) * i
+            xy = bottom_left + j_adj * delta_right_bottom + lerp(delta_up_left, delta_up_right, w) * i
             corners.append(SaddlePoint(id, xy[0], xy[1]))
     return corners
 

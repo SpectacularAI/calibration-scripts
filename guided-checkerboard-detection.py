@@ -431,15 +431,32 @@ def detect_checkerboard_corners(args, detector, image):
     top_right = np.array([selected_kps[2].x, selected_kps[2].y])
     top_left = np.array([selected_kps[3].x, selected_kps[3].y])
 
-    predicted_corners = predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left, rows, cols)
-    corners = []
-    used_kp_ids = []
-    for predicted in predicted_corners:
-        kp = select_closest_keypoint(keypoints, (predicted.x, predicted.y))
-        if kp is None: continue
-        if kp.id in used_kp_ids: continue # TODO: Handle duplicate matches better...
-        used_kp_ids.append(kp.id)
-        corners.append(SaddlePoint(predicted.id, kp.x, kp.y))
+    corners = None
+    predicted_corners = None
+    def predict():
+        nonlocal corners, predicted_corners
+        predicted_corners = predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left, rows, cols)
+        corners = []
+        used_kp_ids = []
+        for predicted in predicted_corners:
+            kp = select_closest_keypoint(keypoints, (predicted.x, predicted.y))
+            if kp is None: continue
+            if kp.id in used_kp_ids: continue # TODO: Handle duplicate matches better...
+            used_kp_ids.append(kp.id)
+            corners.append(SaddlePoint(predicted.id, kp.x, kp.y))
+
+    unrefined_corners = None
+    def draw():
+        nonlocal image, corners, predicted_corners, unrefined_corners
+        image_checkerboard = image.copy()
+        draw_keypoints(image_checkerboard, predicted_corners, 1, (255, 0, 0))
+        if unrefined_corners is not None:
+            draw_keypoints(image_checkerboard, unrefined_corners, 1, (0, 255, 0))
+        draw_keypoints(image_checkerboard, corners, 2, (0, 0, 255))
+        scaled_imshow(args, MAIN_WINDOW, image_checkerboard)
+
+    predict()
+    draw()
 
     title = '[SPACE]=continue, [LEFT-CLICK]=remove closest, [RIGHT-CLICK]=remove all'
     print(title)
@@ -451,27 +468,19 @@ def detect_checkerboard_corners(args, detector, image):
             corners.remove(kp)
         elif event == cv2.EVENT_RBUTTONDOWN:
             corners.clear()
-        else: return
+        draw()
 
-        image_checkerboard = image.copy()
-        draw_keypoints(image_checkerboard, predicted_corners, 1, (255, 0, 0))
-        draw_keypoints(image_checkerboard, corners, 2, (0, 0, 255))
-        scaled_imshow(args, MAIN_WINDOW, image_checkerboard)
-
-    unrefined_corners = None
     if refine:
         unrefined_corners = corners[:]
         for i, c in enumerate(refine_corners(args, gray_image, None, corners)):
             corners[i] = c
 
-    image_checkerboard = image.copy()
-    draw_keypoints(image_checkerboard, predicted_corners, 1, (255, 0, 0))
-    if unrefined_corners is not None:
-        draw_keypoints(image_checkerboard, unrefined_corners, 1, (0, 255, 0))
-    draw_keypoints(image_checkerboard, corners, 2, (0, 0, 255))
-    scaled_imshow(args, MAIN_WINDOW, image_checkerboard)
     set_scaled_mouse_callback(args, MAIN_WINDOW, click_event)
-    cv2.waitKey(0)
+
+    while True:
+        key = cv2.waitKey(0)
+        if key == 32: # Space, continue to tracking.
+            break
 
     return np.array(corners)
 

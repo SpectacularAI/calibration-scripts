@@ -370,23 +370,26 @@ def predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left,
     delta_up_right = (top_right - bottom_right) / (rows - 2)
     delta_right_bottom = (bottom_right - bottom_left) / (cols - 2)
 
-    # This could also be implemented in the row direction, that's why `adjust_prediction` has two numbers.
-    shifted_col_positions = [0.0]
-    if adjust_prediction[0] != 0:
+    limits = [cols, rows]
+    shifted_inds = [[0.0], [0.0]]
+    step_sizes = [0.99, 0.97]
+    for dim in range(2):
+        if adjust_prediction[dim] == 0: continue
+        limit = limits[dim]
         pos = 0
         step = 1
-        step_mod = pow(0.99, adjust_prediction[0])
-        for j in range(cols - 2):
+        step_mod = pow(step_sizes[dim], adjust_prediction[dim])
+        for j in range(limit - 2):
             step *= step_mod
             pos += step
-            shifted_col_positions.append(pos)
-        m = (cols - 2) /  shifted_col_positions[-1]
-        for j in range(cols - 1):
-            shifted_col_positions[j] *= m
+            shifted_inds[dim].append(pos)
+        m = (limit - 2) / shifted_inds[dim][-1]
+        for j in range(limit - 1):
+            shifted_inds[dim][j] *= m
 
-    def adjust_col_ind(j):
-        if adjust_prediction[0] == 0: return j
-        return shifted_col_positions[j]
+    def adjust_ind(j, dim):
+        if adjust_prediction[dim] == 0: return j
+        return shifted_inds[dim][j]
 
     def lerp(start, stop, w):
         return w * start + (1.0 - w) * stop
@@ -395,10 +398,11 @@ def predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left,
     corners = []
     for j in range(cols - 1):
         for i in range(rows - 1):
-            j_adj = adjust_col_ind(j)
+            j_adj = adjust_ind(j, 0)
+            i_adj = adjust_ind(i, 1)
             w = 1.0 - j_adj / (cols - 2)
             id = checkerboard_corner_to_id(i, j, rows)
-            xy = bottom_left + j_adj * delta_right_bottom + lerp(delta_up_left, delta_up_right, w) * i
+            xy = bottom_left + j_adj * delta_right_bottom + lerp(delta_up_left, delta_up_right, w) * i_adj
             corners.append(SaddlePoint(id, xy[0], xy[1]))
     return corners
 
@@ -499,14 +503,16 @@ def detect_checkerboard_corners(args, detector, image):
 
     while True:
         key = cv2.waitKey(0)
+        adjust_dim_and_dir = None
         if key == 32: # Space, continue to tracking.
             break
-        elif key == ord('h'):
-            adjust_prediction[0] -= 1
-            predict()
-            draw()
-        elif key == ord('l'):
-            adjust_prediction[0] += 1
+        elif key == ord('h') or key == 81: adjust_dim_and_dir = (0, -1)
+        elif key == ord('l') or key == 83: adjust_dim_and_dir = (0, 1)
+        elif key == ord('j') or key == 84: adjust_dim_and_dir = (1, -1)
+        elif key == ord('k') or key == 82: adjust_dim_and_dir = (1, 1)
+
+        if adjust_dim_and_dir is not None:
+            adjust_prediction[adjust_dim_and_dir[0]] += adjust_dim_and_dir[1]
             predict()
             draw()
 

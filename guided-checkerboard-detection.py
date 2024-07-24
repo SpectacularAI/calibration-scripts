@@ -411,6 +411,8 @@ def detect_checkerboard_corners(args, detector, image):
             kp = select_closest_keypoint(keypoints, (x, y))
             if kp is None: return
             selected_kps.append(kp)
+        elif event == cv2.EVENT_MBUTTONDOWN or event == cv2.EVENT_RBUTTONDOWN:
+            selected_kps.append(SaddlePoint(-1, x, y))
         else: return
         scaled_imshow(args, MAIN_WINDOW, draw_keypoints(image_all_keypoints.copy(), selected_kps, color=(0, 0, 255)))
 

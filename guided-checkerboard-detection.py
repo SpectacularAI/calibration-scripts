@@ -525,6 +525,10 @@ def main(args):
         print("Could not read video:", args.video)
         exit(0)
 
+    if args.output and args.output.exists():
+        print(f"Output file `{args.output.name}` already exists and will be over-written. Continue? [y/N]")
+        if input().lower() != "y": return
+
     # Skip frames at start
     frame_number = -1
     for _ in range(args.start):
@@ -689,13 +693,14 @@ def main(args):
             for image_corners in serialized_corners:
                 json_line = json.dumps(image_corners)
                 file.write(json_line + '\n')
+        print("Saved corners.")
 
 if __name__ == '__main__':
     def parse_args():
         import argparse
         p = argparse.ArgumentParser()
         p.add_argument('video', type=str, help='Path to the video file.')
-        p.add_argument('--output', type=str, help='Save detected corners to this file (.jsonl)')
+        p.add_argument('--output', type=pathlib.Path, help='Save detected corners to this file (.jsonl)')
         p.add_argument('--start', type=int, default=0, help='Start tracking on this frame')
         p.add_argument('--margin', type=int, default=3, help='Mask N pixels from edges of the images (issue where the IR images have some artefacts)')
         p.add_argument("--rows", type=int, default=5, help="Number of rows in the checkerboard")

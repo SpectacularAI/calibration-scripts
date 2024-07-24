@@ -465,6 +465,11 @@ def detect_checkerboard_corners(args, detector, image):
             used_kp_ids.append(kp.id)
             corners.append(SaddlePoint(predicted.id, kp.x, kp.y))
 
+        if refine:
+            unrefined_corners = corners[:]
+            for i, c in enumerate(refine_corners(args, gray_image, None, corners)):
+                corners[i] = c
+
     unrefined_corners = None
     def draw():
         nonlocal image, corners, predicted_corners, unrefined_corners
@@ -489,11 +494,6 @@ def detect_checkerboard_corners(args, detector, image):
         elif event == cv2.EVENT_RBUTTONDOWN:
             corners.clear()
         draw()
-
-    if refine:
-        unrefined_corners = corners[:]
-        for i, c in enumerate(refine_corners(args, gray_image, None, corners)):
-            corners[i] = c
 
     set_scaled_mouse_callback(args, MAIN_WINDOW, click_event)
 

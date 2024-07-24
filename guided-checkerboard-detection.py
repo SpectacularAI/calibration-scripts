@@ -365,10 +365,29 @@ def fix_frame(image, margin):
     image[:, :margin] = (0, 0, 0)
     image[:, -margin:] = (0, 0, 0)
 
-def predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left, rows, cols):
+def predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left, rows, cols, adjust_prediction):
     delta_up_left = (top_left - bottom_left) / (rows - 2)
     delta_up_right = (top_right - bottom_right) / (rows - 2)
     delta_right_bottom = (bottom_right - bottom_left) / (cols - 2)
+
+    # This could also be implemented in the row direction, that's why `adjust_prediction` has two numbers.
+    shifted_col_positions = [0.0]
+    if adjust_prediction[0] != 0:
+        pos = 0
+        step = 1
+        step_mod = pow(0.99, adjust_prediction[0])
+        for j in range(cols - 2):
+            step *= step_mod
+            pos += step
+            shifted_col_positions.append(pos)
+        m = (cols - 2) /  shifted_col_positions[-1]
+        for j in range(cols - 1):
+            shifted_col_positions[j] *= m
+
+    def col_pos(j):
+        if adjust_prediction[0] == 0:
+            return j * delta_right_bottom
+        return shifted_col_positions[j] * delta_right_bottom
 
     def lerp(start, stop, w):
         return w * start + (1.0 - w) * stop
@@ -379,7 +398,7 @@ def predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left,
         for i in range(rows - 1):
             w = 1.0 - j / (cols - 2)
             id = checkerboard_corner_to_id(i, j, rows)
-            xy = bottom_left + delta_right_bottom * j + lerp(delta_up_left, delta_up_right, w) * i
+            xy = bottom_left + col_pos(j) + lerp(delta_up_left, delta_up_right, w) * i
             corners.append(SaddlePoint(id, xy[0], xy[1]))
     return corners
 
@@ -431,11 +450,12 @@ def detect_checkerboard_corners(args, detector, image):
     top_right = np.array([selected_kps[2].x, selected_kps[2].y])
     top_left = np.array([selected_kps[3].x, selected_kps[3].y])
 
+    adjust_prediction = [0, 0]
     corners = None
     predicted_corners = None
     def predict():
         nonlocal corners, predicted_corners
-        predicted_corners = predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left, rows, cols)
+        predicted_corners = predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left, rows, cols, adjust_prediction)
         corners = []
         used_kp_ids = []
         for predicted in predicted_corners:
@@ -481,6 +501,14 @@ def detect_checkerboard_corners(args, detector, image):
         key = cv2.waitKey(0)
         if key == 32: # Space, continue to tracking.
             break
+        elif key == ord('h'):
+            adjust_prediction[0] -= 1
+            predict()
+            draw()
+        elif key == ord('l'):
+            adjust_prediction[0] += 1
+            predict()
+            draw()
 
     return np.array(corners)
 

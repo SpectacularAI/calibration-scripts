@@ -365,10 +365,31 @@ def fix_frame(image, margin):
     image[:, :margin] = (0, 0, 0)
     image[:, -margin:] = (0, 0, 0)
 
-def predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left, rows, cols):
+def predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left, rows, cols, adjust_prediction):
     delta_up_left = (top_left - bottom_left) / (rows - 2)
     delta_up_right = (top_right - bottom_right) / (rows - 2)
     delta_right_bottom = (bottom_right - bottom_left) / (cols - 2)
+
+    limits = [cols, rows]
+    shifted_inds = [[0.0], [0.0]]
+    step_sizes = [0.99, 0.97]
+    for dim in range(2):
+        if adjust_prediction[dim] == 0: continue
+        limit = limits[dim]
+        pos = 0
+        step = 1
+        step_mod = pow(step_sizes[dim], adjust_prediction[dim])
+        for j in range(limit - 2):
+            step *= step_mod
+            pos += step
+            shifted_inds[dim].append(pos)
+        m = (limit - 2) / shifted_inds[dim][-1]
+        for j in range(limit - 1):
+            shifted_inds[dim][j] *= m
+
+    def adjust_ind(j, dim):
+        if adjust_prediction[dim] == 0: return j
+        return shifted_inds[dim][j]
 
     def lerp(start, stop, w):
         return w * start + (1.0 - w) * stop
@@ -377,9 +398,11 @@ def predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left,
     corners = []
     for j in range(cols - 1):
         for i in range(rows - 1):
-            w = 1.0 - j / (cols - 2)
+            j_adj = adjust_ind(j, 0)
+            i_adj = adjust_ind(i, 1)
+            w = 1.0 - j_adj / (cols - 2)
             id = checkerboard_corner_to_id(i, j, rows)
-            xy = bottom_left + delta_right_bottom * j + lerp(delta_up_left, delta_up_right, w) * i
+            xy = bottom_left + j_adj * delta_right_bottom + lerp(delta_up_left, delta_up_right, w) * i_adj
             corners.append(SaddlePoint(id, xy[0], xy[1]))
     return corners
 
@@ -411,6 +434,8 @@ def detect_checkerboard_corners(args, detector, image):
             kp = select_closest_keypoint(keypoints, (x, y))
             if kp is None: return
             selected_kps.append(kp)
+        elif event == cv2.EVENT_MBUTTONDOWN or event == cv2.EVENT_RBUTTONDOWN:
+            selected_kps.append(SaddlePoint(-1, x, y))
         else: return
         scaled_imshow(args, MAIN_WINDOW, draw_keypoints(image_all_keypoints.copy(), selected_kps, color=(0, 0, 255)))
 
@@ -429,15 +454,38 @@ def detect_checkerboard_corners(args, detector, image):
     top_right = np.array([selected_kps[2].x, selected_kps[2].y])
     top_left = np.array([selected_kps[3].x, selected_kps[3].y])
 
-    predicted_corners = predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left, rows, cols)
-    corners = []
-    used_kp_ids = []
-    for predicted in predicted_corners:
-        kp = select_closest_keypoint(keypoints, (predicted.x, predicted.y))
-        if kp is None: continue
-        if kp.id in used_kp_ids: continue # TODO: Handle duplicate matches better...
-        used_kp_ids.append(kp.id)
-        corners.append(SaddlePoint(predicted.id, kp.x, kp.y))
+    adjust_prediction = [0, 0]
+    corners = None
+    predicted_corners = None
+    def predict():
+        nonlocal corners, predicted_corners
+        predicted_corners = predict_checkerboard_corners(bottom_left, bottom_right, top_right, top_left, rows, cols, adjust_prediction)
+        corners = []
+        used_kp_ids = []
+        for predicted in predicted_corners:
+            kp = select_closest_keypoint(keypoints, (predicted.x, predicted.y))
+            if kp is None: continue
+            if kp.id in used_kp_ids: continue # TODO: Handle duplicate matches better...
+            used_kp_ids.append(kp.id)
+            corners.append(SaddlePoint(predicted.id, kp.x, kp.y))
+
+        if refine:
+            unrefined_corners = corners[:]
+            for i, c in enumerate(refine_corners(args, gray_image, None, corners)):
+                corners[i] = c
+
+    unrefined_corners = None
+    def draw():
+        nonlocal image, corners, predicted_corners, unrefined_corners
+        image_checkerboard = image.copy()
+        draw_keypoints(image_checkerboard, predicted_corners, 1, (255, 0, 0))
+        if unrefined_corners is not None:
+            draw_keypoints(image_checkerboard, unrefined_corners, 1, (0, 255, 0))
+        draw_keypoints(image_checkerboard, corners, 2, (0, 0, 255))
+        scaled_imshow(args, MAIN_WINDOW, image_checkerboard)
+
+    predict()
+    draw()
 
     title = '[SPACE]=continue, [LEFT-CLICK]=remove closest, [RIGHT-CLICK]=remove all'
     print(title)
@@ -449,27 +497,24 @@ def detect_checkerboard_corners(args, detector, image):
             corners.remove(kp)
         elif event == cv2.EVENT_RBUTTONDOWN:
             corners.clear()
-        else: return
+        draw()
 
-        image_checkerboard = image.copy()
-        draw_keypoints(image_checkerboard, predicted_corners, 1, (255, 0, 0))
-        draw_keypoints(image_checkerboard, corners, 2, (0, 0, 255))
-        scaled_imshow(args, MAIN_WINDOW, image_checkerboard)
-
-    unrefined_corners = None
-    if refine:
-        unrefined_corners = corners[:]
-        for i, c in enumerate(refine_corners(args, gray_image, None, corners)):
-            corners[i] = c
-
-    image_checkerboard = image.copy()
-    draw_keypoints(image_checkerboard, predicted_corners, 1, (255, 0, 0))
-    if unrefined_corners is not None:
-        draw_keypoints(image_checkerboard, unrefined_corners, 1, (0, 255, 0))
-    draw_keypoints(image_checkerboard, corners, 2, (0, 0, 255))
-    scaled_imshow(args, MAIN_WINDOW, image_checkerboard)
     set_scaled_mouse_callback(args, MAIN_WINDOW, click_event)
-    cv2.waitKey(0)
+
+    while True:
+        key = cv2.waitKey(0)
+        adjust_dim_and_dir = None
+        if key == 32: # Space, continue to tracking.
+            break
+        elif key == ord('h') or key == 81: adjust_dim_and_dir = (0, -1)
+        elif key == ord('l') or key == 83: adjust_dim_and_dir = (0, 1)
+        elif key == ord('j') or key == 84: adjust_dim_and_dir = (1, -1)
+        elif key == ord('k') or key == 82: adjust_dim_and_dir = (1, 1)
+
+        if adjust_dim_and_dir is not None:
+            adjust_prediction[adjust_dim_and_dir[0]] += adjust_dim_and_dir[1]
+            predict()
+            draw()
 
     return np.array(corners)
 
@@ -524,6 +569,10 @@ def main(args):
     if not capture.isOpened():
         print("Could not read video:", args.video)
         exit(0)
+
+    if args.output and args.output.exists():
+        print(f"Output file `{args.output.name}` already exists and will be over-written. Continue? [y/N]")
+        if input().lower() != "y": return
 
     # Skip frames at start
     frame_number = -1
@@ -689,13 +738,14 @@ def main(args):
             for image_corners in serialized_corners:
                 json_line = json.dumps(image_corners)
                 file.write(json_line + '\n')
+        print("Saved corners.")
 
 if __name__ == '__main__':
     def parse_args():
         import argparse
         p = argparse.ArgumentParser()
         p.add_argument('video', type=str, help='Path to the video file.')
-        p.add_argument('--output', type=str, help='Save detected corners to this file (.jsonl)')
+        p.add_argument('--output', type=pathlib.Path, help='Save detected corners to this file (.jsonl)')
         p.add_argument('--start', type=int, default=0, help='Start tracking on this frame')
         p.add_argument('--margin', type=int, default=3, help='Mask N pixels from edges of the images (issue where the IR images have some artefacts)')
         p.add_argument("--rows", type=int, default=5, help="Number of rows in the checkerboard")

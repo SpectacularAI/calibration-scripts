@@ -40,18 +40,8 @@ def plotDataset(folder, args):
     altitude = {"v": [], "t": [] }
     cameras = {}
 
-    startTime = sys.maxsize
-    with open(jsonlFile) as f:
-        for line in f.readlines():
-            measurement = json.loads(line)
-            if measurement.get("time") is not None:
-                if startTime > measurement["time"]:
-                    startTime = measurement["time"]
-
+    startTime = None
     timeOffset = 0
-    if args.zero:
-        timeOffset = startTime
-
     minTime = None
     maxTime = None
 
@@ -59,18 +49,25 @@ def plotDataset(folder, args):
         nSkipped = 0
         for line in f.readlines():
             measurement = json.loads(line)
+            sensor = measurement.get("sensor")
+            frames = measurement.get("frames")
+            if sensor is None and frames is None: continue
+
             if "time" in measurement:
+                if startTime is None:
+                    startTime = measurement["time"]
+                    if args.zero:
+                        timeOffset = startTime
+
                 t = measurement["time"]
                 if (args.skip is not None and t - startTime < args.skip) or (args.max is not None and t - startTime > args.max):
                     nSkipped += 1
                     continue
 
-                if minTime == None or minTime > t: minTime = t
-                if maxTime == None or maxTime < t: maxTime = t
-
                 t_corr = measurement["time"] - timeOffset
+                if minTime == None or minTime > t_corr: minTime = t_corr
+                if maxTime == None or maxTime < t_corr: maxTime = t_corr
 
-            sensor = measurement.get("sensor")
             if sensor is not None:
                 measurementType = sensor["type"]
                 if measurementType == "accelerometer":
@@ -81,7 +78,7 @@ def plotDataset(folder, args):
                         diff = t_corr - accelerometer["t"][-1]
                     accelerometer["td"].append(diff * 1000.)
                     accelerometer["t"].append(t_corr)
-                if measurementType == "gyroscope":
+                elif measurementType == "gyroscope":
                     for i, c in enumerate('xyz'): gyroscope[c].append(sensor["values"][i])
                     if len(gyroscope["t"]) == 0:
                         diff = 0
@@ -89,11 +86,10 @@ def plotDataset(folder, args):
                         diff = t_corr - gyroscope["t"][-1]
                     gyroscope["td"].append(diff * 1000.)
                     gyroscope["t"].append(t_corr)
-                if measurementType == "altitude":
+                elif measurementType == "altitude":
                     altitude["v"].append(sensor["values"][0])
                     altitude["t"].append(t_corr)
-            if measurement.get("frames") is not None:
-                frames = measurement.get("frames")
+            elif frames is not None:
                 for f in frames:
                     ind = f["cameraInd"]
                     if cameras.get(ind) is None:
@@ -135,13 +131,14 @@ def plotDataset(folder, args):
         )
         t = np.array(camera["t"])[order]
         y = np.array(camera["diff"])[order]
+
         plots.append(
-            lambda s: addSubplot(s, t, y, "frame time #{} (ms)".format(ind), **plotkwargs)
+            lambda s, t=t, y=y, ind=ind: addSubplot(s, t, y, "frame time diff #{} (ms)".format(ind), **plotkwargs)
         )
         if camera.get("features"):
             y = np.array(camera["features"])[order]
             plots.append(
-                lambda s: addSubplot(s, t, y, "features #{}".format(ind), **plotkwargs)
+                lambda s, t=t, y=y, ind=ind: addSubplot(s, t, y, "features #{}".format(ind), **plotkwargs)
             )
 
         if len(camera["t"]) > 0:

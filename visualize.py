@@ -131,13 +131,14 @@ def plotDataset(folder, args):
         )
         t = np.array(camera["t"])[order]
         y = np.array(camera["diff"])[order]
+
         plots.append(
-            lambda s: addSubplot(s, t, y, "frame time #{} (ms)".format(ind), **plotkwargs)
+            lambda s, t=t, y=y, ind=ind: addSubplot(s, t, y, "frame time diff #{} (ms)".format(ind), **plotkwargs)
         )
         if camera.get("features"):
             y = np.array(camera["features"])[order]
             plots.append(
-                lambda s: addSubplot(s, t, y, "features #{}".format(ind), **plotkwargs)
+                lambda s, t=t, y=y, ind=ind: addSubplot(s, t, y, "features #{}".format(ind), **plotkwargs)
             )
 
         if len(camera["t"]) > 0:

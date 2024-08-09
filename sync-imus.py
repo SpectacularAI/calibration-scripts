@@ -14,6 +14,12 @@ from scipy import signal, optimize
 import numpy as np
 from pathlib import Path
 
+def simulate_imu_data(filename, timestampRange, sensor):
+    if timestampRange: raise Exception("timestampRange not implemented for simulation")
+    if sensor != "gyroscope": raise Exception("Simulation only supports gyroscope signal")
+    from utils.gt_to_angular_velocity import simulate_angular_velocity
+    return simulate_angular_velocity(filename)
+
 def read_imu_data(filename, timestampRange, sensor):
     if timestampRange:
         start, end = timestampRange.split(":")
@@ -261,13 +267,18 @@ def synchronizeImus():
         p.add_argument("--step", type=float, default=5.0, help="In time scale estimation, the dataset is divided into parts using this step (seconds)")
         p.add_argument("--imu1_to_imu2", help="Path to json file that contains 3x3 rotation matrix 'imu1ToImu2' to align the imu signals")
         p.add_argument("--no_plot", help="Don't show any plots", action="store_true")
+        p.add_argument("--simulate_imu1", help="Simulates imu1 signal from groundTruth poses", action="store_true")
+
         return p.parse_args()
 
     args = parseArgs()
     show_plot = not args.no_plot
 
     sensor = "accelerometer" if args.accelerometer else "gyroscope"
-    dataImu1 = read_imu_data(args.imu1, args.timestamp_range, sensor)
+    if args.simulate_imu1:
+        dataImu1 = simulate_imu_data(args.imu1, args.timestamp_range, sensor)
+    else:
+        dataImu1 = read_imu_data(args.imu1, args.timestamp_range, sensor)
     dataImu2 = read_imu_data(args.imu2, args.timestamp_range, sensor)
 
     if args.imu1_to_imu2:

@@ -46,12 +46,14 @@ def read_imu1_to_imu2(filename):
             return np.array(data["imu1ToImu2"])
         raise KeyError("{} does not contain key 'imu1ToImu2'".format(filename))
 
-def write_output_jsonl(inputFilename, outputFilename, model, modelParams):
+def write_output_jsonl(inputFilename, outputFilename, model, modelParams, timeRange=None):
     with open(inputFilename, 'r') as input, open(outputFilename, 'w') as output:
         for line in input:
             data = json.loads(line)
             if "time" in data:
                 data["time"] = model(modelParams, data["time"])
+            if timeRange and (data["time"] < timeRange[0] or data["time"] > timeRange[1]):
+                continue
             output.write(json.dumps(data) + '\n')
 
 def compute_imu_frequency(timestamps):
@@ -123,7 +125,7 @@ def quadratic_model(params, x):
     a, b, c = params
     return a * x**2 + b * x + c
 
-def estimate_time_scale(dataImu1, dataImu2, stepSeconds, show_plot):
+def estimate_time_scale(dataImu1, dataImu2, stepSeconds, show_plot, linear_only=False):
     timestamps1 = dataImu1[:, 0]
     timestamps2 = dataImu2[:, 0]
     imu1 = dataImu1[:, 1]
@@ -186,16 +188,18 @@ def estimate_time_scale(dataImu1, dataImu2, stepSeconds, show_plot):
     rmseLinear = np.sqrt(np.mean((y - linearFit)**2))
 
     # Fit quadratic model with soft_l1 loss using least_squares
-    resultQuadratic = optimize.least_squares(objective_quadratic, [0.0, 0.0, lag_to_time_offset(estimateLag, timestamps1, timestamps2)], loss='soft_l1', args=(x, y))
-    paramsQuadratic = resultQuadratic.x
-    quadratic_fit = quadratic_model(paramsQuadratic, x)
-    rmseQuadratic = np.sqrt(np.mean((y - quadratic_fit)**2))
+    if not linear_only:
+        resultQuadratic = optimize.least_squares(objective_quadratic, [0.0, 0.0, lag_to_time_offset(estimateLag, timestamps1, timestamps2)], loss='soft_l1', args=(x, y))
+        paramsQuadratic = resultQuadratic.x
+        quadratic_fit = quadratic_model(paramsQuadratic, x)
+        rmseQuadratic = np.sqrt(np.mean((y - quadratic_fit)**2))
+
 
     if show_plot:
         # Plot the original data and the fitted models
         plt.scatter(x, y, label='Data')
         plt.plot(x, linearFit, label=f'Linear Fit (RMSE={rmseLinear:.2f})', color='red')
-        plt.plot(x, quadratic_fit, label=f'Quadratic Fit (RMSE={rmseQuadratic:.2f})', color='green')
+        if not linear_only: plt.plot(x, quadratic_fit, label=f'Quadratic Fit (RMSE={rmseQuadratic:.2f})', color='green')
         plt.xlabel('Time (seconds)')
         plt.ylabel('Time offset (seconds)')
         plt.title('Time offset over time fits with soft L1 loss')
@@ -211,21 +215,22 @@ def estimate_time_scale(dataImu1, dataImu2, stepSeconds, show_plot):
         plt.legend()
         plt.show()
 
-        timestamps1Quadratic = timestamps1 + quadratic_model(paramsQuadratic, timestamps1)
-        plt.plot(timestamps1Quadratic, imu1, label='imu1')
-        plt.plot(timestamps2, imu2, label='imu2')
-        plt.xlabel('Time (seconds)')
-        plt.ylabel('Imu value')
-        plt.title('Synchronized IMU Signals (quadratic model applied to imu1 timestamps)')
-        plt.legend()
-        plt.show()
+        if not linear_only:
+            timestamps1Quadratic = timestamps1 + quadratic_model(paramsQuadratic, timestamps1)
+            plt.plot(timestamps1Quadratic, imu1, label='imu1')
+            plt.plot(timestamps2, imu2, label='imu2')
+            plt.xlabel('Time (seconds)')
+            plt.ylabel('Imu value')
+            plt.title('Synchronized IMU Signals (quadratic model applied to imu1 timestamps)')
+            plt.legend()
+            plt.show()
 
     # (linear) t_imu2 = a * t_imu1 + b + t_imu1 = (1 + a) * t_imu1 + b
     # (quadratic) t_imu2 = a * t_imu1^2 + b * t_imu1 + c + t_imu1 = a * t_imu1^2 + (1 + b) * t_imu1 + c
     paramsLinear[0] += 1
-    paramsQuadratic[1] += 1
+    if not linear_only: paramsQuadratic[1] += 1
 
-    return paramsLinear, paramsQuadratic
+    return paramsLinear, paramsQuadratic if not linear_only else None
 
 # Resample the lower frequency IMU signal (the time sync code assumes that both signals have same frequency)
 def resample_IMU_data(dataImu1, dataImu2):
@@ -268,7 +273,8 @@ def synchronizeImus():
         p.add_argument("--imu1_to_imu2", help="Path to json file that contains 3x3 rotation matrix 'imu1ToImu2' to align the imu signals")
         p.add_argument("--no_plot", help="Don't show any plots", action="store_true")
         p.add_argument("--simulate_imu1", help="Simulates imu1 signal from groundTruth poses", action="store_true")
-
+        p.add_argument("--crop", help="Crops imu1 data to start and end when imu2 does", action="store_true")
+        p.add_argument("--linear_only", help="Only compute linear model", action="store_true")
         return p.parse_args()
 
     args = parseArgs()
@@ -280,6 +286,7 @@ def synchronizeImus():
     else:
         dataImu1 = read_imu_data(args.imu1, args.timestamp_range, sensor)
     dataImu2 = read_imu_data(args.imu2, args.timestamp_range, sensor)
+    timeRangeImu2 = (dataImu2[0][0], dataImu2[-1][0]) if args.crop else None
 
     if args.imu1_to_imu2:
         imu1ToImu2 = read_imu1_to_imu2(args.imu1_to_imu2)
@@ -323,14 +330,15 @@ def synchronizeImus():
     if args.output: Path(args.output).mkdir(exist_ok=True, parents=True)
 
     if args.time_scale:
-        paramsLinear, paramsQuadratic = estimate_time_scale(dataImu1, dataImu2, args.step, show_plot)
+        paramsLinear, paramsQuadratic = estimate_time_scale(dataImu1, dataImu2, args.step, show_plot, linear_only=args.linear_only)
         print('(linear) t_imu2 = {0} * t_imu1 + {1}'.format(paramsLinear[0], paramsLinear[1]))
-        print('(quadratic) t_imu2 = {0} * t_imu1^2 + {1} * t_imu1 + {2}'.format(paramsQuadratic[0], paramsQuadratic[1], paramsQuadratic[2]))
+        if not args.linear_only: print('(quadratic) t_imu2 = {0} * t_imu1^2 + {1} * t_imu1 + {2}'.format(paramsQuadratic[0], paramsQuadratic[1], paramsQuadratic[2]))
         if args.output:
             output = "{}/imu1_linear_data.jsonl".format(args.output)
-            write_output_jsonl(args.imu1, output, linear_model, paramsLinear)
-            output = "{}/imu1_quadratic_data.jsonl".format(args.output)
-            write_output_jsonl(args.imu1, output, quadratic_model, paramsQuadratic)
+            write_output_jsonl(args.imu1, output, linear_model, paramsLinear, timeRangeImu2)
+            if not args.linear_only:
+                output = "{}/imu1_quadratic_data.jsonl".format(args.output)
+                write_output_jsonl(args.imu1, output, quadratic_model, paramsQuadratic, timeRangeImu2)
         return paramsLinear, paramsQuadratic
     else:
         lag = compute_lag_cross_correlation(dataImu1[:, 1], dataImu2[:, 1], show_plot, 'full')
@@ -338,7 +346,7 @@ def synchronizeImus():
         print('t_imu2 = t_imu1 + t_offset, where t_offset = {0}'.format(timeOffset))
         if args.output:
             output = "{}/imu1_offset_data.jsonl".format(args.output)
-            write_output_jsonl(args.imu1, output, linear_model, (1.0, timeOffset))
+            write_output_jsonl(args.imu1, output, linear_model, (1.0, timeOffset), timeRangeImu2)
         return timeOffset
 
 if __name__ == "__main__":

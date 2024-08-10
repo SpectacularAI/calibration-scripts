@@ -3,3 +3,4 @@ venv/
 april_6x6_80x80cm.pdf
 outputs/
 __pycache__
+.vscode/settings.json

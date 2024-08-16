@@ -33,13 +33,14 @@ def compute_angular_velocities(gt, key):
     angular_speed = []
     euler_ori = []
     time = []
+    orientationKey = "orientation" if "orientation" in prev[key] else "enuOrientation"
     for index, cur in enumerate(gt):
         if index == 0: continue
         dt = cur["time"] - prev["time"]
         if dt == 0.0: continue
         angular, speed = angular_velocity(
-            ori_to_quat(prev[key]["orientation"]),
-            ori_to_quat(cur[key]["orientation"]),
+            ori_to_quat(prev[key][orientationKey]),
+            ori_to_quat(cur[key][orientationKey]),
             dt
         )
         time.append((prev["time"] + cur["time"]) * .5)
@@ -53,10 +54,17 @@ def compute_angular_velocities(gt, key):
     return (np.array(time).T, np.array(angular_velocities), np.array(euler_ori), np.array(angular_speed))
 
 
-def simulate_angular_velocity(input, gtName="groundTruth"):
+def simulate_angular_velocity(input, gtName=None):
     data = []
+    validGtNames = ["groundTruth", "gps"]
     with open(input) as f:
         for line in f.readlines():
+            if gtName == None:
+                for n in validGtNames:
+                    if n in line:
+                        gtName = n
+                        break
+            if not gtName: continue
             if not gtName in line: continue
             data.append(json.loads(line))
     gt_time, gt_angular, gt_euler, gt_angular_speed = compute_angular_velocities(data, gtName)

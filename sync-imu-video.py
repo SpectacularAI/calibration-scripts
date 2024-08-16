@@ -13,6 +13,11 @@ import math
 from scipy import interpolate
 
 
+def simulate_imu_data(filename):
+    from utils.gt_to_angular_velocity import simulate_angular_velocity
+    return simulate_angular_velocity(filename)
+
+
 class OpticalFlowComputer:
     def __init__(self, fn, args):
         self.cap = cv.VideoCapture(fn)
@@ -165,6 +170,7 @@ if __name__ == '__main__':
     p.add_argument('--resize_width', type=int, default=200)
     p.add_argument('--output', help="data.jsonl with frame timestamp shifted to match gyroscope timestamps")
     p.add_argument('--maxOffset', help="Maximum offset between gyro and frame times in seconds", type=float, default=5.0)
+    p.add_argument("--simulate_imu", help="Simulates imu signal from groundTruth/GPS poses", action="store_true")
 
     args = p.parse_args()
 
@@ -183,13 +189,19 @@ if __name__ == '__main__':
     data = slurpJson(args.data)
     prevFrameTime = None
     for entry in data:
-        if "sensor" in entry and entry["sensor"]["type"] == "gyroscope":
+        if not args.simulate_imu and "sensor" in entry and entry["sensor"]["type"] == "gyroscope":
             gyroTimes.append(entry["time"])
             gyroSpeed.append(np.linalg.norm(entry["sensor"]["values"]))
         elif "frames" in entry:
             if prevFrameTime != None:
                 frameTimes.append((prevFrameTime + entry["time"]) / 2.0)
             prevFrameTime = entry["time"]
+
+    if args.simulate_imu:
+        simulatedGyro = simulate_imu_data(args.data)
+        gyroTimes = simulatedGyro[:,0]
+        xyz = simulatedGyro[:, 1:4]
+        gyroSpeed = np.linalg.norm(xyz, axis=1)
 
     if args.max_frames > 0:
         frameTimes = frameTimes[args.skip_first_n_frames : args.skip_first_n_frames + args.max_frames]

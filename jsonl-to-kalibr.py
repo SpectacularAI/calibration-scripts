@@ -24,9 +24,6 @@ args = parser.parse_args()
 
 SECONDS_TO_NS = 1000 * 1000 * 1000
 
-# kalibr_bagcreater doesn't support timestamps smaller than 1 second, add an offset
-TIME_OFFSET_NS = 1 * SECONDS_TO_NS
-
 
 def log10(x):
     return math.log(x, 10)
@@ -160,7 +157,7 @@ def computeNoiseRandomWalk(imu, outputFolder):
 
 
 def getNanoseconds(seconds):
-    return int(seconds * SECONDS_TO_NS + TIME_OFFSET_NS)
+    return int(seconds * SECONDS_TO_NS)
 
 
 def getVideoFile(folder, name):
@@ -225,24 +222,30 @@ def readJsonl(folder):
     mapped = { mapping[num]: frames[num] for num in frames.keys() }
     frames = mapped
 
-    accStartIndex = 0
-    synced = []
-    for gyroSample in gyro:
-        closestAccSample = acc[0]
-        i = accStartIndex
-        while i < len(acc):
-            accSample = acc[i]
-            if abs(closestAccSample[0] - gyroSample[0]) > abs(accSample[0] - gyroSample[0]):
-                closestAccSample = accSample
-                accStartIndex = i # Always start finding match for next sample where we left off
-            if closestAccSample[0] > gyroSample[0]:
-                break
-            i += 1
+    gyro = sorted(gyro, key=lambda x: x[0])
+    acc = sorted(acc, key=lambda x: x[0])
 
-        try:
-            synced.append([getNanoseconds(gyroSample[0]), gyroSample[1], gyroSample[2], gyroSample[3], closestAccSample[1], closestAccSample[2], closestAccSample[3]])
-        except:
-            print("Failed {}".format(gyroSample[0]))
+    synced = []
+    accIdx = 0
+    for gyroSample in gyro:
+        closestAccSample = acc[accIdx]
+        while accIdx < len(acc) - 1 and abs(acc[accIdx + 1][0] - gyroSample[0]) < abs(closestAccSample[0] - gyroSample[0]):
+            accIdx += 1
+            closestAccSample = acc[accIdx]
+
+        assert len(gyroSample) == 4
+        assert len(closestAccSample) == 4
+
+        synced.append([getNanoseconds(gyroSample[0]), gyroSample[1], gyroSample[2], gyroSample[3], closestAccSample[1], closestAccSample[2], closestAccSample[3]])
+
+    assert len(synced) > 0
+    assert len(frames) > 0
+    
+    # workaround for a bug in kalibr_bagcreater (does not like times < 1s)
+    minTs = min([synced[0][0]] + list(frames.values()))
+    offset = -minTs + SECONDS_TO_NS + 1
+    for x in synced: x[0] += offset
+    for k in frames.keys(): frames[k] += offset
 
     return synced, frames # synced gyro + nearest acc, frmae timestamps
 

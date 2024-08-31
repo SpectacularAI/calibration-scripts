@@ -16,7 +16,7 @@ RECORDING="$1"
 # CAM_MODEL=pinhole-equi # Kannala-Brandt 4
 tmp_dir=tmp
 DOCKER_KALIBR_RUN="docker run --rm -v `pwd`/$tmp_dir:/kalibr -it stereolabs/kalibr:kinetic"
-DOCKER_OURS_RUN="docker run --rm -v `pwd`/$tmp_dir:/kalibr -it ghcr.io/spectacularai/kalibr-conversion:1.0"
+DOCKER_OURS_RUN="docker run --rm -v `pwd`/$tmp_dir:/kalibr -v `pwd`:/new_scripts -it ghcr.io/spectacularai/kalibr-conversion:1.0"
 APRIL_TAG_SIZE=$2
 
 # must clear using docker to avoid permission issues
@@ -39,7 +39,7 @@ rostopic: /imu0
 update_rate: 400
 " >> $tmp_dir/allan/imu.yaml
 
-$DOCKER_OURS_RUN python3 /scripts/jsonl-to-kalibr.py /kalibr/camera_calibration_raw -output /kalibr/converted/
+$DOCKER_OURS_RUN python3 /new_scripts/jsonl-to-kalibr.py /kalibr/camera_calibration_raw -output /kalibr/converted/
 $DOCKER_KALIBR_RUN kalibr_bagcreater --folder /kalibr/converted --output-bag /kalibr/data.bag
 set +e
 if [ -d "$tmp_dir/converted/cam1" ]; then
@@ -64,7 +64,7 @@ $DOCKER_KALIBR_RUN bash -c "cd kalibr && kalibr_calibrate_imu_camera --bag data.
   --imu allan/imu.yaml  \
   --dont-show-report"
 set -e
-$DOCKER_OURS_RUN python3 /scripts/kalibr-to-calibration.py /kalibr/camchain-imucam-data.yaml -output /kalibr/camera_calibration_raw/
+$DOCKER_OURS_RUN python3 /new_scripts/kalibr-to-calibration.py /kalibr/camchain-imucam-data.yaml -output /kalibr/camera_calibration_raw/
 
 echo ""
 echo "Calibration completed!"

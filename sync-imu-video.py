@@ -161,6 +161,8 @@ if __name__ == '__main__':
     p.add_argument('-skip', '--skip_first_n_frames', type=int, default=0, help='Skip first N frames')
     p.add_argument('--preview', action='store_true')
     p.add_argument('--noPlot', action='store_true')
+    p.add_argument('--sameStart', action='store_true', help="Assume video and gyro start roughly at same time")
+    p.add_argument('--sameEnd', action='store_true', help="Assume video and gyro end roughly at same time")
     p.add_argument('--frameTimeOffsetSeconds', type=float)
     p.add_argument('--resize_width', type=int, default=200)
     p.add_argument('--output', help="data.jsonl with frame timestamp shifted to match gyroscope timestamps")
@@ -190,6 +192,18 @@ if __name__ == '__main__':
             if prevFrameTime != None:
                 frameTimes.append((prevFrameTime + entry["time"]) / 2.0)
             prevFrameTime = entry["time"]
+
+    initialOffset = 0.0
+    if args.sameStart:
+        initialOffset = gyroTimes[0] - frameTimes[0]
+        print(f"Asuming same start time, offseting frames by {initialOffset}")
+        for i in range(len(frameTimes)):
+            frameTimes[i] += initialOffset
+    if args.sameEnd:
+        initialOffset = gyroTimes[-1] - frameTimes[-1]
+        print(f"Asuming same end time, offseting frames by {initialOffset}")
+        for i in range(len(frameTimes)):
+            frameTimes[i] += initialOffset
 
     if args.max_frames > 0:
         frameTimes = frameTimes[args.skip_first_n_frames : args.skip_first_n_frames + args.max_frames]
@@ -255,6 +269,8 @@ if __name__ == '__main__':
 
         plt.legend()
         plt.show()
+
+    timeOffset += initialOffset
 
     print("Estimated time offset: {:.4f}s".format(timeOffset))
     if args.output:

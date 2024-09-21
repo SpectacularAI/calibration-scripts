@@ -200,7 +200,7 @@ def readJsonl(folder):
             except:
                 print("Ignoring bad JSONL line:", line)
                 continue
-            if entry.get("sensor"):
+            if entry.get("sensor", {"type": ""})["type"] in ["gyroscope", "accelerometer"]:
                 values = entry["sensor"]["values"]
                 arr = [entry["time"], values[0], values[1], values[2]]
                 if entry["sensor"]["type"] == "gyroscope":

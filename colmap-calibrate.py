@@ -37,15 +37,20 @@ def readJsonl(filePath):
     with open(filePath) as f:
         for l in f: yield(json.loads(l))
 
-def runWithLogging(cmd, name, path):
+def runWithLogging(args, cmd, name, path):
+    if args.debug: print(f"Running: {cmd}")
+
     process = subprocess.run(cmd, shell=True, capture_output=True)
     with open(path / f"{name}-stderr", "w") as f:
         err = process.stderr.decode('utf-8').strip()
         f.write(f"{cmd}\n---\n")
         f.write(err)
+        if args.debug: print(err)
     with open(path / f"{name}-stdout", "w") as f:
+        out = process.stdout.decode('utf-8').strip()
         f.write(f"{cmd}\n---\n")
-        f.write(process.stdout.decode('utf-8').strip())
+        f.write(out)
+        if args.debug: print(out)
     if err == "": return None
     return err
 
@@ -70,7 +75,7 @@ def calibrateVideo(args, videoPath, videoWorkPath, dataJsonlPath):
 
         print("Converting video to images (every {}th).".format(subsample))
         print('Total frames {}.'.format(int(n / subsample)))
-        runWithLogging(cmd, "ffmpeg", videoWorkPath)
+        runWithLogging(args, cmd, "ffmpeg", videoWorkPath)
 
         # Save list of frames used.
         with open(videoWorkPath / "frames.jsonl", "w") as f:
@@ -92,7 +97,7 @@ def calibrateVideo(args, videoPath, videoWorkPath, dataJsonlPath):
         cmd += f" --image_path {imagesPath}"
         cmd += " --ImageReader.single_camera 1"
         cmd += f" --ImageReader.camera_model {args.model.upper()}"
-        runWithLogging(cmd, "colmap-feature-extractor", videoWorkPath)
+        runWithLogging(args, cmd, "colmap-feature-extractor", videoWorkPath)
 
     matchingMethod = "sequential_matcher" # "vocab_tree_matcher" might be better.
     matchingDonePath = videoWorkPath / "matching_done"
@@ -101,7 +106,7 @@ def calibrateVideo(args, videoPath, videoWorkPath, dataJsonlPath):
     else:
         print("Running feature matching.")
         cmd = f"{env} colmap {matchingMethod} --database_path {databasePath}"
-        runWithLogging(cmd, "colmap-matching", videoWorkPath)
+        runWithLogging(args, cmd, "colmap-matching", videoWorkPath)
         with open(matchingDonePath, "w") as f:
             f.write(matchingMethod)
 
@@ -115,7 +120,7 @@ def calibrateVideo(args, videoPath, videoWorkPath, dataJsonlPath):
         cmd += f" --image_path {imagesPath}"
         cmd += f" --output_path {mapperPath}"
         cmd += f" {args.mapperParameters}"
-        runWithLogging(cmd, "colmap-mapper", videoWorkPath)
+        runWithLogging(args, cmd, "colmap-mapper", videoWorkPath)
 
         # The principal point in all camera models is by default the exact middle of the image,
         # and COLMAP documentation says estimating it "unstable" (although there is an option to do so).
@@ -124,7 +129,7 @@ def calibrateVideo(args, videoPath, videoWorkPath, dataJsonlPath):
         cmd += f" --input_path {mapperPath}/0"
         cmd += f" --output_path {mapperPath}/0"
         cmd += " --BundleAdjustment.refine_principal_point 1"
-        runWithLogging(cmd, "colmap-ba-principal-point-refinement", videoWorkPath)
+        runWithLogging(args, cmd, "colmap-ba-principal-point-refinement", videoWorkPath)
 
     # Never skip this phase.
     print("Converting outputs to text format.")
@@ -133,7 +138,7 @@ def calibrateVideo(args, videoPath, videoWorkPath, dataJsonlPath):
     cmd = f"{env} colmap model_converter --output_type TXT"
     cmd += f" --input_path \"{mapperPath}/0\""
     cmd += f" --output_path \"{textModelPath}\""
-    runWithLogging(cmd, "colmap-model-converter", videoWorkPath)
+    runWithLogging(args, cmd, "colmap-model-converter", videoWorkPath)
 
     print("Video ok.")
     return None
@@ -200,7 +205,6 @@ def main(args):
                 "distortionCoefficients": [float(tokens[7]), float(tokens[8]), 0.],
             })
         elif tokens[1] == "OPENCV":
-            print("tokens", tokens)
             calibration["cameras"].append({
                 "imageWidth": int(tokens[2]),
                 "imageHeight": int(tokens[3]),
@@ -229,6 +233,7 @@ def main(args):
             print("Unsupported conversion, raw output:", tokens)
         # TODO Add option to copy imuToCamera from an existing calibration.
 
+    print(calibration)
     with open(calibrationPath / "calibration.json", "w") as f:
         f.write(json.dumps(calibration, indent=4))
 
@@ -242,8 +247,9 @@ if __name__ == "__main__":
     p.add_argument("datasetPath", type=pathlib.Path, help="Recording folder with data.jsonl and video files.")
     p.add_argument("--frameCount", type=int, default=300, help="Target number of frames per video. Smaller is faster but may cause the calibration to fail.")
     p.add_argument("--everyNthFrame", type=int, default=0, help="If set, use every Nth frame instead of targeting a certain frame count")
-    p.add_argument("--model", default="opencv", help="COLMAP camera model to use.")
+    p.add_argument("--model", default="opencv", help="COLMAP camera model to use. For list of the models, see https://colmap.github.io/cameras.html")
     p.add_argument("--dirty", action="store_true", help="Use existing intermediary outputs when found. (Not recommended)")
+    p.add_argument("--debug", action="store_true", help="Useful to enable for extra prints until confirming COLMAP works.")
     p.add_argument("--mapperParameters", default="--Mapper.ba_global_function_tolerance=1e-6", help="COLMAP mapper parameters")
     args = p.parse_args()
     main(args)

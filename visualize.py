@@ -48,7 +48,11 @@ def plotDataset(folder, args):
     with open(jsonlFile) as f:
         nSkipped = 0
         for line in f.readlines():
-            measurement = json.loads(line)
+            try:
+                measurement = json.loads(line)
+            except:
+                sys.stderr.write('ignoring non JSON line: %s' % line)
+                continue
             sensor = measurement.get("sensor")
             frames = measurement.get("frames")
             if sensor is None and frames is None: continue

@@ -55,6 +55,9 @@ def plotDataset(folder, args):
                 continue
             sensor = measurement.get("sensor")
             frames = measurement.get("frames")
+            if frames is None and 'frame' in measurement:
+                frames = [measurement['frame']]
+                frames[0]['cameraInd'] = 0
             if sensor is None and frames is None: continue
 
             if "time" in measurement:

@@ -53,7 +53,8 @@ def custom_slow_response(image, x, y, radius):
     x_diff = wnd[:, :radius] - wnd[:, -1:radius:-1]
     return (min(np.mean(y_diff**2), np.mean(x_diff**2)) - np.mean(cross_diff**2))*3
 
-def refine_corners(args, image, responses, corners, radius=4, refine_itr=2, reselect_maxima=True, plot=False):
+def refine_corners(args, image, responses, corners, refine_itr=2, reselect_maxima=True, plot=False):
+    radius = args.refine_radius
     h, w = image.shape
 
     if responses is None: reselect_maxima = False
@@ -756,6 +757,7 @@ if __name__ == '__main__':
         p.add_argument('--detector_ksize', type=int, default=3, help="Corner detector kernel size (must be odd)")
         p.add_argument('--detector_nms_radius', type=int, default=20, help="Detector non-maximum supression radius (pixels)")
         p.add_argument('--detector_debug', action="store_true", help="Enable additional detector plots")
+        p.add_argument('--refine_radius', type=int, default=4)
         p.add_argument('--no_refine', action='store_true', help="Do not refine corner points after detection")
         p.add_argument('--no_refine_after_track', action='store_true', help="Do not refine corner points after tracking")
         p.add_argument('--reject_margin', type=int, default=10, help='Reject features this close to the image edge (or black margin) because tracking is likely to fail')

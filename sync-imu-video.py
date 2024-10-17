@@ -1,5 +1,7 @@
+#!/usr/bin/env python3
 """
-Plot video and gyroscope speed to help synchronizing them
+Computes timeshift needed to match gyroscope and video (optical flow) rotations.
+Plots the data before and after the synchronization.
 """
 
 import json
@@ -113,14 +115,6 @@ def slurpJson(dataJsonl):
     return data
 
 
-def normalize_array(array):
-    np_array = np.array(array)
-    min_value = np.min(np_array)
-    max_value = np.max(np_array)
-    normalized_array = (np_array - min_value) / (max_value - min_value)
-    return normalized_array
-
-
 def meanError(times, values, fn, fn_range, offset):
     newTimes = times - offset
     startIdx = None
@@ -150,26 +144,7 @@ def findMinimumError(gyro_time, gyro_angular_speed, fn, fn_range, offsets):
     smallestIdx = np.nanargmin(errors)
     return offsets, errors, offsets[smallestIdx], errors[smallestIdx]
 
-
-if __name__ == '__main__':
-    import argparse
-    p = argparse.ArgumentParser(__doc__)
-    p.add_argument('video', help="path to video file")
-    p.add_argument('data', help="path to data.jsonl file")
-    p.add_argument('--flow_winsize', type=int, default=15)
-    p.add_argument('--max_frames', type=int, default=0)
-    p.add_argument('-skip', '--skip_first_n_frames', type=int, default=0, help='Skip first N frames')
-    p.add_argument('--preview', action='store_true')
-    p.add_argument('--noPlot', action='store_true')
-    p.add_argument('--sameStart', action='store_true', help="Assume video and gyro start roughly at same time")
-    p.add_argument('--sameEnd', action='store_true', help="Assume video and gyro end roughly at same time")
-    p.add_argument('--frameTimeOffsetSeconds', type=float)
-    p.add_argument('--resize_width', type=int, default=200)
-    p.add_argument('--output', help="data.jsonl with frame timestamp shifted to match gyroscope timestamps")
-    p.add_argument('--maxOffset', help="Maximum offset between gyro and frame times in seconds", type=float, default=5.0)
-
-    args = p.parse_args()
-
+def main(args):
     if not pathlib.Path(args.data).exists():
         raise Exception("Data file `{}` does not exist.".format(args.data))
     if not pathlib.Path(args.video).exists():
@@ -222,11 +197,17 @@ if __name__ == '__main__':
         frameSpeed.append(avg_speed)
         leader_flow.show_preview('leader')
 
-    gyroSpeed = normalize_array(gyroSpeed)
-    frameSpeed = normalize_array(frameSpeed)
+    if len(gyroSpeed) == 0:
+        print("No gyroscope data to plot.")
+        return
+    if len(frameSpeed) == 0:
+        print("No frame data to plot.")
+        return
 
-    # gyroSpeed = scipy.signal.medfilt(gyroSpeed, kernel_size=21)
-    # frameSpeed = scipy.signal.medfilt(frameSpeed, kernel_size=3)
+    gyroSpeed = np.array(gyroSpeed)
+    frameSpeed = np.array(frameSpeed)
+    gyroSpeed /= np.mean(gyroSpeed)
+    frameSpeed /= np.mean(frameSpeed)
 
     testedOffsets = []
     estimatedErrors = []
@@ -248,18 +229,32 @@ if __name__ == '__main__':
             testedOffsets.append(offsets)
         timeOffset = offset
 
+    totalOffset = initialOffset + timeOffset
+    print("Estimated time offset: {:.4f}s".format(totalOffset))
 
-    if not args.noPlot:
+    if args.rawPlotOnly:
+        plt.plot(gyroTimes, gyroSpeed, label='Gyroscope speed')
+        plt.plot(frameTimes, frameSpeed, label='Optical flow speed')
+        plt.title("Original data")
+        plt.legend()
+        plt.xlabel('t (s)')
+        plt.ylabel('normalized speed')
+        plt.show()
+    elif not args.noPlot:
         _, subplots = plt.subplots(2 + len(estimatedErrors))
-        subplots[0].plot(gyroTimes, gyroSpeed, label='Gyro speed')
+        subplots[0].plot(gyroTimes, gyroSpeed, label='Gyroscope speed')
         subplots[0].plot(frameTimes, frameSpeed, label='Optical flow speed')
-        subplots[0].title.set_text("Normalized gyro speed vs. optical flow speed")
+        subplots[0].title.set_text("Original data")
+        subplots[0].set_xlabel('t (s)')
+        subplots[0].set_ylabel('normalized speed')
         subplots[0].legend()
 
         frameTimes = np.array(frameTimes) + timeOffset
-        subplots[1].plot(gyroTimes, gyroSpeed, label='Gyro speed')
+        subplots[1].plot(gyroTimes, gyroSpeed, label='Gyroscope speed')
         subplots[1].plot(frameTimes, frameSpeed, label=f'Optical flow speed')
-        subplots[1].title.set_text(f"Normalized gyro speed vs. optical flow speed with {timeOffset} seconds added to frame timetamps")
+        subplots[1].title.set_text(f"After correction by {timeOffset:.4f}s added to frame timetamps")
+        subplots[1].set_xlabel('t (s)')
+        subplots[1].set_ylabel('normalized speed')
         subplots[1].legend()
 
         for i in range(len(estimatedErrors)):
@@ -270,16 +265,33 @@ if __name__ == '__main__':
         plt.legend()
         plt.show()
 
-    timeOffset += initialOffset
-
-    print("Estimated time offset: {:.4f}s".format(timeOffset))
     if args.output:
         print(f"All frame timestamps corrected in {args.output}")
         for entry in data:
             if "frames" in entry:
-                entry["time"] += timeOffset
+                entry["time"] += totalOffset
         data_sorted = sorted(data, key=lambda x: x.get("time", 0.0))
         with open(args.output, "w") as f:
             for entry in data_sorted:
                 f.write(json.dumps(entry) + "\n")
 
+if __name__ == '__main__':
+    import argparse
+    p = argparse.ArgumentParser(__doc__)
+    p.add_argument('video', help="path to video file")
+    p.add_argument('data', help="path to data.jsonl file")
+    p.add_argument('--flow_winsize', type=int, default=15)
+    p.add_argument('--max_frames', type=int, default=0)
+    p.add_argument('-skip', '--skip_first_n_frames', type=int, default=0, help='Skip first N frames')
+    p.add_argument('--preview', action='store_true')
+    p.add_argument('--noPlot', action='store_true')
+    p.add_argument('--rawPlotOnly', action='store_true')
+    p.add_argument('--sameStart', action='store_true', help="Assume video and gyroscope start roughly at same time")
+    p.add_argument('--sameEnd', action='store_true', help="Assume video and gyroscope end roughly at same time")
+    p.add_argument('--frameTimeOffsetSeconds', type=float)
+    p.add_argument('--resize_width', type=int, default=200)
+    p.add_argument('--output', help="data.jsonl with frame timestamp shifted to match gyroscope timestamps")
+    p.add_argument('--maxOffset', help="Maximum offset between gyroscope and frame times in seconds", type=float, default=5.0)
+
+    args = p.parse_args()
+    main(args)

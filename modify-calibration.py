@@ -69,7 +69,13 @@ if __name__ == '__main__':
     try:
         with open(args.matrix) as f:
             calibration = json.load(f)
+        if args.action == 'set_imu_to_camera':
             matrix = calibration["cameras"][args.matrixIndexInCalibration]["imuToCamera"]
+        else:
+            assert(args.action == 'set_first_to_second')
+            imuToCam0 = np.array(calibration["cameras"][0]["imuToCamera"])
+            imuToCam1 = np.array(calibration["cameras"][1]["imuToCamera"])
+            matrix = imuToCam1 @ np.linalg.inv(imuToCam0)
     except:
         matrix = json.loads(args.matrix)
 
@@ -77,8 +83,8 @@ if __name__ == '__main__':
 
     if args.action == 'set_imu_to_camera':
         calib_out = set_imu_to_camera_matrix(calib_in, matrix, args.second)
-
-    elif args.action == 'set_first_to_second':
+    else:
+        assert(args.action == 'set_first_to_second')
         calib_out = set_first_to_second_matrix(calib_in, matrix, args.second)
 
     print(json.dumps(calib_out, indent=4))

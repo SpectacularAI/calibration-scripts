@@ -13,13 +13,14 @@ import shutil
 import subprocess
 
 parser = argparse.ArgumentParser()
-parser.add_argument("input", help="Path to JSONL data folder.")
-parser.add_argument("output", help="Path to folder to be created.")
+parser.add_argument("input", type=pathlib.Path, help="Path to JSONL data folder.")
+parser.add_argument("output", type=pathlib.Path, help="Path to folder to be created.")
 parser.add_argument("--t0", type=float, help="Skip data before this many seconds from beginning")
 parser.add_argument("--t1", type=float, help="Skip data after this many seconds from beginning.")
 parser.add_argument("--subsample", type=int, help="Keep every nth frame.")
 parser.add_argument("--downscale", help="Factor to downscale videos by.")
 parser.add_argument("--crf", type=int, default=15, help="h264 encoding quality value (0=lossless, 17=visually lossless)")
+parser.add_argument("--videos", help="List videos to convert comma-separated, otherwise will use all from the input folder")
 
 def slurpJsonl(path):
     jsonls = []
@@ -32,7 +33,7 @@ def slurpJsonl(path):
 
 def findVideos(folder):
     FORMATS = ['avi', 'mp4', 'mov', 'mkv']
-    return [os.path.join(folder, x) for x in os.listdir(folder) if x.split('.')[-1] in FORMATS]
+    return [x for x in os.listdir(folder) if x.split('.')[-1] in FORMATS]
 
 def probeFps(inputFile):
     fpsDiv = subprocess.check_output("ffprobe -v error -select_streams v -of default=noprint_wrappers=1:nokey=1 -show_entries stream=avg_frame_rate {}".format(inputFile), shell=True).decode('utf-8').strip()
@@ -61,8 +62,9 @@ def handleVideo(args, inputVideo, outputFolder, n0, n1):
         output = "data2.{}".format(container)
     elif "data3" in inputVideo:
         output = "data3.{}".format(container)
+    elif not "data." in inputVideo:
+        raise Exception(f"Unexpected video name: {inputVideo}")
     else:
-        assert("data." in inputVideo)
         output = "data.{}".format(container)
 
     output = "{}/{}".format(outputFolder, output)
@@ -162,7 +164,7 @@ def subsample(args, jsonls):
     return output # Already sorted.
 
 def main(args):
-    jsonls = slurpJsonl("{}/data.jsonl".format(args.input))
+    jsonls = slurpJsonl(args.input / "data.jsonl")
     jsonls = sorted(jsonls, key=lambda row: row["time"])
 
     skipStartFramesInd = None
@@ -181,12 +183,17 @@ def main(args):
             f.write(json.dumps(j, separators=(',', ':')))
             f.write("\n")
 
-    for video in findVideos(args.input):
-        handleVideo(args, video, args.output, skipStartFramesInd, skipEndFramesInd)
+    if args.videos is not None:
+        videos = args.videos.split(",")
+    else:
+        videos = findVideos(args.input)
+
+    for fileName in videos:
+        handleVideo(args, str(args.input / fileName), args.output, skipStartFramesInd, skipEndFramesInd)
 
     for file in ["calibration.json", "vio_config.yaml"]:
-        inputPath = pathlib.Path(args.input) / file
-        outputPath = pathlib.Path(args.output) / file
+        inputPath = args.input / file
+        outputPath = args.output / file
         if not inputPath.exists(): continue
         shutil.copyfile(inputPath, outputPath)
 

@@ -42,6 +42,12 @@ def main(args):
     g0 = interpNd(tGrid, v0[:, 0], v0[:, 1:])
     g1 = interpNd(tGrid, v1[:, 0], v1[:, 1:])
 
+    if args.smoothN > 0:
+        weights = np.ones(args.smoothN) / args.smoothN
+        tGrid = np.convolve(tGrid, weights, mode='valid')
+        g0 = np.column_stack([np.convolve(g0[:, i], weights, mode='valid') for i in range(3)])
+        g1 = np.column_stack([np.convolve(g1[:, i], weights, mode='valid') for i in range(3)])
+
     colors = "rgb"
     for i in range(3):
         plt.plot(tGrid, g0[:, i], label=f"imu0-{i}", color=colors[i], linestyle="--")
@@ -50,6 +56,7 @@ def main(args):
     plt.title("Before alignment")
     plt.show()
 
+    # Wahba's problem.
     B = g0.transpose() @ g1
     U, S, Vt = np.linalg.svd(B)
     R = np.dot(U, Vt)
@@ -59,7 +66,6 @@ def main(args):
 
     imu0toImu1 = np.eye(4)
     imu0toImu1[:3, :3] = R
-    print(imu0toImu1.tolist())
     aligned0 = np.dot(R, g0.transpose()).transpose()
 
     for i in range(3):
@@ -78,5 +84,6 @@ if __name__ == "__main__":
     p.add_argument("--t0", type=float, help="Skip data before this many seconds from the beginning.")
     p.add_argument("--t1", type=float, help="Skip data after this many seconds from the beginning.")
     p.add_argument("--step", type=float, default=0.1, help="Sample IMU at this interval (seconds)")
+    p.add_argument("--smoothN", type=int, default=0)
     args = p.parse_args()
     main(args)

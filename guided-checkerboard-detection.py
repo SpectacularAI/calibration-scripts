@@ -628,6 +628,7 @@ def main(args):
         success, frame, frame_number = read_frame(capture, frame_number, args.margin)
         if not success: break
         if frame_number < args.start_frame: continue
+        if frame_number % args.subsample_frames != 0: continue
         gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         duplicate = False
@@ -804,5 +805,6 @@ if __name__ == '__main__':
         p.add_argument('--scale_view', type=float, default=2.0, help="Images larger on screen, does not affect eg corner detection and tracking")
         p.add_argument('--duplicate_image_threshold', type=float, default=0.1, help="If duplicate frames exist and are not detected properly, make this value larger. In case of false positives, make smaller.")
         p.add_argument("--start_frame", type=int, default=0, help="Starting frame number, data before this is skipped")
+        p.add_argument("--subsample_frames", type=int, default=1, help="Keep every Nth frame")
         return p.parse_args()
     main(parse_args())

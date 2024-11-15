@@ -8,6 +8,8 @@ DELETE_LAST_N_RESULTS = 10
 
 MAIN_WINDOW = "Guided checkerboard detection"
 
+LINE_COLOR = (0, 255, 255)
+
 class SaddlePoint:
     def __init__(self, id, x, y):
         self.id = id
@@ -53,7 +55,8 @@ def custom_slow_response(image, x, y, radius):
     x_diff = wnd[:, :radius] - wnd[:, -1:radius:-1]
     return (min(np.mean(y_diff**2), np.mean(x_diff**2)) - np.mean(cross_diff**2))*3
 
-def refine_corners(args, image, responses, corners, radius=4, refine_itr=2, reselect_maxima=True, plot=False):
+def refine_corners(args, image, responses, corners, refine_itr=2, reselect_maxima=True, plot=False):
+    radius = args.refine_radius
     h, w = image.shape
 
     if responses is None: reselect_maxima = False
@@ -311,9 +314,31 @@ class SaddlePointCornerDetector:
 
         return keypoints
 
-def draw_keypoints(image, keypoints, radius=2, color=(255, 0, 0), thickness=-1):
+def draw_lines(args, image, corners, ids):
+    id_to_point = {}
+    assert(len(corners) == len(ids))
+    for i in range(len(ids)):
+        p = corners[i, :]
+        id_to_point[ids[i]] = (round(p[0]), round(p[1]))
+
+    for id in ids:
+        p = id_to_point[id]
+        row, col = checkerboard_id_to_corner(id, args.rows)
+        for col0 in range(col + 1, args.cols - 1):
+            id0 = checkerboard_corner_to_id(row, col0, args.rows)
+            if id0 in ids:
+                image = cv2.line(image, p, id_to_point[id0], LINE_COLOR, 1)
+                break
+        for row0 in range(row + 1, args.rows - 1):
+            id0 = checkerboard_corner_to_id(row0, col, args.rows)
+            if id0 in ids:
+                image = cv2.line(image, p, id_to_point[id0], LINE_COLOR, 1)
+                break
+
+def draw_keypoints(args, image, keypoints, radius=2, color=(255, 0, 0), thickness=-1):
     for kp in keypoints:
-        image = cv2.circle(image, (int(kp.x), int(kp.y)), radius, color, thickness)
+        p = (round(kp.x), round(kp.y))
+        image = cv2.circle(image, p, radius, color, thickness)
     return image
 
 def draw_tracks(image, good_new, good_old):
@@ -437,9 +462,9 @@ def detect_checkerboard_corners(args, detector, image):
         elif event == cv2.EVENT_MBUTTONDOWN or event == cv2.EVENT_RBUTTONDOWN:
             selected_kps.append(SaddlePoint(-1, x, y))
         else: return
-        scaled_imshow(args, MAIN_WINDOW, draw_keypoints(image_all_keypoints.copy(), selected_kps, color=(0, 0, 255)))
+        scaled_imshow(args, MAIN_WINDOW, draw_keypoints(args, image_all_keypoints.copy(), selected_kps, color=(0, 0, 255)))
 
-    image_all_keypoints = draw_keypoints(image.copy(), keypoints, color=(255, 255, 0))
+    image_all_keypoints = draw_keypoints(args, image.copy(), keypoints, color=(255, 255, 0))
     scaled_imshow(args, MAIN_WINDOW, image_all_keypoints)
     set_scaled_mouse_callback(args, MAIN_WINDOW, click_event)
     cv2.setWindowTitle(MAIN_WINDOW, title)
@@ -478,10 +503,10 @@ def detect_checkerboard_corners(args, detector, image):
     def draw():
         nonlocal image, corners, predicted_corners, unrefined_corners
         image_checkerboard = image.copy()
-        draw_keypoints(image_checkerboard, predicted_corners, 1, (255, 0, 0))
+        draw_keypoints(args, image_checkerboard, predicted_corners, 1, (255, 0, 0))
         if unrefined_corners is not None:
-            draw_keypoints(image_checkerboard, unrefined_corners, 1, (0, 255, 0))
-        draw_keypoints(image_checkerboard, corners, 2, (0, 0, 255))
+            draw_keypoints(args, image_checkerboard, unrefined_corners, 1, (0, 255, 0))
+        draw_keypoints(args, image_checkerboard, corners, 2, (0, 0, 255))
         scaled_imshow(args, MAIN_WINDOW, image_checkerboard)
 
     predict()
@@ -592,6 +617,7 @@ def main(args):
         debug=args.detector_debug)
     corners = np.array([])
     prev_points = np.array([])
+    ids = np.array([])
 
     lk_params = dict(winSize=(15, 15), maxLevel=2, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
     prev_gray = None
@@ -620,6 +646,7 @@ def main(args):
             good_old = prev_points[status == 1]
             status = np.squeeze(status) if len(status) > 1 else status[0]
             corners = corners[status == 1]
+            ids = ids[status == 1]
 
             # 2) Proximity to image borders
             border_margin = args.margin + args.reject_margin
@@ -627,6 +654,7 @@ def main(args):
             good_new = good_new[status == 1]
             good_old = good_old[status == 1]
             corners = corners[status == 1]
+            ids = ids[status == 1]
 
             # Update corner positions
             for i in range(len(corners)):
@@ -647,29 +675,33 @@ def main(args):
                 good_new = good_new[status == 1]
                 good_old = good_old[status == 1]
                 corners = corners[status == 1]
+                ids = ids[status == 1]
 
             # 3) Motion, all points should move roughly in the same direction
             status = filter_points_by_motion(args, good_new, good_old, gray_frame, max_deviation=5.0)
             good_new = good_new[status == 1]
             good_old = good_old[status == 1]
             corners = corners[status == 1]
+            ids = ids[status == 1]
 
             # 4) Proximity, points should not be too close to each other
             status = filter_points_by_proximity(good_new, threshold=0.4)
             good_new = good_new[status == 1]
             good_old = good_old[status == 1]
             corners = corners[status == 1]
+            ids = ids[status == 1]
         else:
             good_new = np.array([])
             good_old = np.array([])
             corners = np.array([])
+            ids = np.array([])
 
         prev_gray = gray_frame.copy()
         prev_points = good_new.reshape(-1, 1, 2)
 
         title = '[SPACE]=next, [R]=redetect corners, [D]=delete last N results, [Q]=quit'
         def click_event(event, x, y, flags, param):
-            nonlocal corners, prev_points, good_new, good_old, duplicate
+            nonlocal corners, prev_points, good_new, good_old, ids, duplicate
 
             if duplicate: return
 
@@ -681,6 +713,7 @@ def main(args):
                 corners = np.delete(corners, idx)
                 good_new = np.delete(good_new, idx, axis=0)
                 good_old = np.delete(good_old, idx, axis=0)
+                ids = np.delete(ids, idx, axis=0)
                 # Delete the same point from previous frames as well.
                 for frame_ind in range(min(DELETE_LAST_N_RESULTS, len(serialized_corners))):
                     x = serialized_corners[len(serialized_corners) - frame_ind - 1]["points2d"]
@@ -697,14 +730,19 @@ def main(args):
                 good_new = np.array([])
                 good_old = np.array([])
                 corners = np.array([])
+                ids = np.array([])
             else: return
             prev_points = good_new.reshape(-1, 1, 2)
-            scaled_imshow(args, MAIN_WINDOW, draw_tracks(frame.copy(), good_new, good_old))
+            track_image = frame.copy()
+            draw_lines(args, track_image, good_new, ids)
+            scaled_imshow(args, MAIN_WINDOW, draw_tracks(track_image, good_new, good_old))
 
         if duplicate:
             scaled_imshow(args, MAIN_WINDOW, draw_duplicate(frame.copy()))
         else:
-            scaled_imshow(args, MAIN_WINDOW, draw_tracks(frame.copy(), good_new, good_old))
+            track_image = frame.copy()
+            draw_lines(args, track_image, good_new, ids)
+            scaled_imshow(args, MAIN_WINDOW, draw_tracks(track_image, good_new, good_old))
         cv2.setWindowTitle(MAIN_WINDOW, title)
         set_scaled_mouse_callback(args, MAIN_WINDOW, click_event)
 
@@ -715,6 +753,7 @@ def main(args):
             elif key == ord('r') and not duplicate: # re-detect corners
                 corners = detect_checkerboard_corners(args, detector, frame)
                 prev_points = np.array([[kp.x, kp.y] for kp in corners], dtype=np.float32).reshape(-1, 1, 2)
+                ids = np.array([kp.id for kp in corners])
                 break
             elif key == ord('d'): # delete last N results
                 for _ in range(DELETE_LAST_N_RESULTS):
@@ -723,6 +762,7 @@ def main(args):
                 good_old = np.array([])
                 corners = np.array([])
                 prev_points = np.array([])
+                ids = np.array([])
                 scaled_imshow(args, MAIN_WINDOW, draw_tracks(frame.copy(), good_new, good_old))
                 print(f"Deleted last {DELETE_LAST_N_RESULTS} results")
             elif key == ord('q'): # quit
@@ -756,6 +796,7 @@ if __name__ == '__main__':
         p.add_argument('--detector_ksize', type=int, default=3, help="Corner detector kernel size (must be odd)")
         p.add_argument('--detector_nms_radius', type=int, default=20, help="Detector non-maximum supression radius (pixels)")
         p.add_argument('--detector_debug', action="store_true", help="Enable additional detector plots")
+        p.add_argument('--refine_radius', type=int, default=4)
         p.add_argument('--no_refine', action='store_true', help="Do not refine corner points after detection")
         p.add_argument('--no_refine_after_track', action='store_true', help="Do not refine corner points after tracking")
         p.add_argument('--reject_margin', type=int, default=10, help='Reject features this close to the image edge (or black margin) because tracking is likely to fail')

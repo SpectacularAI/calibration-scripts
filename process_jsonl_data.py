@@ -50,8 +50,7 @@ def handleVideo(args, inputVideo, outputFolder, n0, n1):
     container = "mkv"
     filters = []
     if probeCodec(inputVideo) == "ffv1":
-        # This is the depth format for eg OAK-D recordings.
-        container = "avi"
+        # Lossless 16bit codec.
         codecArgs = "-vcodec ffv1"
     else:
         preset = " -preset veryfast"

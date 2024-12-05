@@ -189,13 +189,16 @@ def main(args):
         gyroSpeed = [gyroSpeed[i] for i, t in enumerate(gyroTimes) if t >= frameTimes[0] and t <= frameTimes[-1]]
         gyroTimes = [t for t in gyroTimes if t >= frameTimes[0] and t <= frameTimes[-1]]
 
+    failureCount = 0
     for i in range(len(frameTimes)):
         avg_speed = leader_flow.next_avg_speed_flow()
         if avg_speed == None:
             avg_speed = 0.0
-            print(f"Failed to get speed for frame {i}")
+            failureCount += 1
         frameSpeed.append(avg_speed)
         leader_flow.show_preview('leader')
+    if failureCount > 0:
+        print(f"Failed to compute speed for {failureCount}/{len(frameTimes)} frames.")
 
     if len(gyroSpeed) == 0:
         print("No gyroscope data to plot.")

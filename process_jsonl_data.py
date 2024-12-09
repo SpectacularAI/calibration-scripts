@@ -5,22 +5,11 @@
 # For example, the following crops the 10s segment starting from the 15s mark:
 #   python process_jsonl_data.py data/benchmark/euroc-v1-01-easy cropped-euroc --t0 15 --t1 25
 
-import argparse
 import json
 import os
 import pathlib
 import shutil
 import subprocess
-
-parser = argparse.ArgumentParser()
-parser.add_argument("input", type=pathlib.Path, help="Path to JSONL data folder.")
-parser.add_argument("output", type=pathlib.Path, help="Path to folder to be created.")
-parser.add_argument("--t0", type=float, help="Skip data before this many seconds from beginning")
-parser.add_argument("--t1", type=float, help="Skip data after this many seconds from beginning.")
-parser.add_argument("--subsample", type=int, help="Keep every nth frame.")
-parser.add_argument("--downscale", help="Factor to downscale videos by.")
-parser.add_argument("--crf", type=int, default=15, help="h264 encoding quality value (0=lossless, 17=visually lossless)")
-parser.add_argument("--videos", help="List videos to convert comma-separated, otherwise will use all from the input folder")
 
 def slurpJsonl(path):
     jsonls = []
@@ -197,4 +186,15 @@ def main(args):
         shutil.copyfile(inputPath, outputPath)
 
 if __name__ == '__main__':
-    main(parser.parse_args())
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument("input", type=pathlib.Path, help="Path to JSONL data folder.")
+    p.add_argument("output", type=pathlib.Path, help="Path to folder to be created.")
+    p.add_argument("--t0", type=float, help="Skip data before this many seconds from beginning")
+    p.add_argument("--t1", type=float, help="Skip data after this many seconds from beginning.")
+    p.add_argument("--subsample", type=int, help="Keep every nth frame.")
+    p.add_argument("--downscale", help="Factor to downscale videos by.")
+    p.add_argument("--crf", type=int, default=15, help="h264 encoding quality value (0=lossless, 17=visually lossless)")
+    p.add_argument("--videos", help="List videos to convert comma-separated, otherwise will use all from the input folder")
+    args = parser.parse_args()
+    main(args)

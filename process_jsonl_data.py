@@ -32,7 +32,10 @@ def probeCodec(inputFile):
     codec = subprocess.check_output("ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 {}".format(inputFile), shell=True).decode('utf-8').strip()
     return codec
 
-def handleVideo(args, inputVideo, outputFolder, n0, n1):
+def handleVideo(args, inputVideo, outputFolder):
+    # Note: these are set in crop() if using --t0 or --t1.
+    n0 = args.skipStartFramesInd
+    n1 = args.skipEndFramesInd
     if n0 and n1: assert(n1 > n0)
     n0value = n0 if n0 else 0
 
@@ -84,13 +87,13 @@ def crop(args, jsonls):
     tDataStart = None
     lastFrameInd = None
 
-    skipStartFramesInd = None
     skipStartTime = None
     searchingStart = args.t0 is not None
+    searchingStartInd = args.skipStartFramesInd is not None
 
-    skipEndFramesInd = None
     skipEndTime = None
     searchingEnd = args.t1 is not None
+    searchingEndInd = args.skipEndFramesInd is not None
 
     for j in jsonls:
         # With this, the relative timestamps are video timestamps which are
@@ -111,12 +114,18 @@ def crop(args, jsonls):
 
         if searchingStart and td >= args.t0:
             searchingStart = False
-            skipStartFramesInd = int(j["number"])
+            args.skipStartFramesInd = int(j["number"])
+            skipStartTime = float(j["time"])
+        elif searchingStartInd and frameInd == args.skipStartFramesInd:
+            searchingStartInd = False
             skipStartTime = float(j["time"])
 
         if searchingEnd and td >= args.t1:
             searchingEnd = False
-            skipEndFramesInd = int(j["number"])
+            args.skipEndFramesInd = int(j["number"])
+            skipEndTime = float(j["time"])
+        elif searchingEndInd and frameInd == args.skipEndFramesInd:
+            searchingEndInd = False
             skipEndTime = float(j["time"])
 
     # Remove triggers.
@@ -126,14 +135,14 @@ def crop(args, jsonls):
         jsonls = [j for j in jsonls if j["time"] >= skipStartTime]
         for j in jsonls:
             if not "frames" in j: continue
-            j["number"] -= skipStartFramesInd
+            j["number"] -= args.skipStartFramesInd
             # These nested copies are not required.
             for f in j["frames"]:
-                if "number" in f: f["number"] -= skipStartFramesInd
+                if "number" in f: f["number"] -= args.skipStartFramesInd
     if skipEndTime:
         jsonls = [j for j in jsonls if j["time"] <= skipEndTime]
 
-    return jsonls, skipStartFramesInd, skipEndFramesInd
+    return jsonls
 
 def subsample(args, jsonls):
     assert(args.subsample > 1)
@@ -155,13 +164,11 @@ def main(args):
     jsonls = slurpJsonl(args.input / "data.jsonl")
     jsonls = sorted(jsonls, key=lambda row: row["time"])
 
-    skipStartFramesInd = None
-    skipEndFramesInd = None
     # These are difficult to implement together, support only one at a time. You
     # can always run the script again.
-    if args.t0 or args.t1:
+    if args.t0 or args.t1 or args.skipStartFramesInd or args.skipEndFramesInd:
         assert(not args.subsample)
-        jsonls, skipStartFramesInd, skipEndFramesInd = crop(args, jsonls)
+        jsonls = crop(args, jsonls)
     elif args.subsample:
         jsonls = subsample(args, jsonls)
 
@@ -177,7 +184,7 @@ def main(args):
         videos = findVideos(args.input)
 
     for fileName in videos:
-        handleVideo(args, str(args.input / fileName), args.output, skipStartFramesInd, skipEndFramesInd)
+        handleVideo(args, str(args.input / fileName), args.output)
 
     for file in ["calibration.json", "vio_config.yaml"]:
         inputPath = args.input / file
@@ -192,9 +199,15 @@ if __name__ == '__main__':
     p.add_argument("output", type=pathlib.Path, help="Path to folder to be created.")
     p.add_argument("--t0", type=float, help="Skip data before this many seconds from beginning")
     p.add_argument("--t1", type=float, help="Skip data after this many seconds from beginning.")
+    p.add_argument("--skipStartFramesInd", type=int, help="Like t0 but exact number of frames")
+    p.add_argument("--skipEndFramesInd", type=int, help="Like t1 but exact number of frames")
     p.add_argument("--subsample", type=int, help="Keep every nth frame.")
     p.add_argument("--downscale", help="Factor to downscale videos by.")
     p.add_argument("--crf", type=int, default=15, help="h264 encoding quality value (0=lossless, 17=visually lossless)")
     p.add_argument("--videos", help="List videos to convert comma-separated, otherwise will use all from the input folder")
-    args = parser.parse_args()
+    args = p.parse_args()
+
+    assert(args.t0 is None or args.skipStartFramesInd is None)
+    assert(args.t1 is None or args.skipEndFramesInd is None)
+
     main(args)

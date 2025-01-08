@@ -3,6 +3,7 @@ Analyze Spectacular AI calibration JSON files
 """
 import numpy as np
 import json
+import math
 
 def rad2deg(a):
     return a / np.pi * 180
@@ -71,13 +72,76 @@ def getRoll(imuToCam, imuToWorld):
     camToWorldRot = np.dot(imuToWorld[:3, :3], imuToCam[:3, :3].transpose())
     return np.arcsin(camToWorldRot[0, 2])
 
+def getFoVs(camera):
+    def computerFovKB4(w, h, f, k1, k2, k3, k4):
+        def solveThetaForR(rPx, thetaMax=3.14159, tol=1e-12, maxItr=100):
+            if abs(rPx) < tol:
+                return 0.0
+
+            def fwd(theta):
+                return f * (theta
+                            + k1 * theta**3
+                            + k2 * theta**5
+                            + k3 * theta**7
+                            + k4 * theta**9)
+
+            def fDiff(th):
+                return fwd(th) - rPx
+
+            if fDiff(thetaMax) < 0:
+                pass
+
+            low, high = 0.0, thetaMax
+            for _ in range(maxItr):
+                mid = 0.5 * (low + high)
+                val = fDiff(mid)
+                if abs(val) < tol:
+                    return mid
+                if val > 0:
+                    high = mid
+                else:
+                    low = mid
+            return 0.5 * (low + high)
+
+        rHalfW = 0.5 * w
+        rHalfH = 0.5 * h
+        rHalfD = 0.5 * math.sqrt(w**2 + h**2)
+        thetaHalfW = solveThetaForR(rHalfW)
+        thetaHalfH = solveThetaForR(rHalfH)
+        thetaHalfD = solveThetaForR(rHalfD)
+        hfov = 2.0 * thetaHalfW
+        vfov = 2.0 * thetaHalfH
+        dfov = 2.0 * thetaHalfD
+        return hfov, vfov, dfov
+
+    fx = camera['focalLengthX']
+    fy = camera['focalLengthY']
+    w = camera['imageWidth']
+    h = camera['imageHeight']
+
+    diagonal = math.sqrt(w**2 + h**2)
+    fisheye = camera['model'] == 'kannala-brandt4'
+    if fisheye:
+        k1, k2, k3, k4 = camera['distortionCoefficients']
+        hfov, vfov, dfov = computerFovKB4(w, h, fx, k1, k2, k3, k4)
+
+    else:
+        hfov = 2.0 * math.atan(w / (2.0 * fx))
+        vfov = 2.0 * math.atan(h / (2.0 * fy))
+        dfov = 2.0 * math.atan(diagonal / (2.0 * fx))
+
+    return {
+        'HFoV': math.degrees(hfov),
+        'VFoV': math.degrees(vfov),
+        'DFoV': math.degrees(dfov),
+        'fisheye': fisheye
+    }
+
 def analyze_calibration(calib, imuLeveled=True):
     cams = [np.array(c['imuToCamera']) for c in calib['cameras']]
     imuToWorld = getReferenceImuToWorld(cams[0], imuLeveled=imuLeveled)
     stats = {
-        'imuToWorld': imuToWorld.tolist(),
-        'baselineMillimeters': 1000 * getBaseline(cams[0], cams[1]), 
-        'vergenceDegrees': rad2deg(getVergence(cams[0], cams[1]))
+        'firstCamFoVDegrees': getFoVs(calib['cameras'][0])
     }
 
     if len(cams) > 1:

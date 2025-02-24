@@ -18,11 +18,13 @@ parser.add_argument("-skip", help="Skip N seconds from the start", type=float)
 parser.add_argument("-max", help="Plot max N seconds from the start", type=float)
 parser.add_argument('--plot_acc_x_diff', action='store_true')
 
-def addSubplot(plot, x, ys, title, style=None, plottype='plot', **kwargs):
+def addSubplot(plot, x, ys, title, style=None, plottype='plot', ymin=None, ymax=None, **kwargs):
     if len(np.array(ys).shape) < 2:
         ys = [ys]
     plot.title.set_text(title)
     p = getattr(plot, plottype)
+    if ymin is not None and ymax is not None:
+        plot.axis(ymin=ymin, ymax=ymax)
     for y in ys:
         if style is not None:
             p(x, y, style, **kwargs)
@@ -38,6 +40,7 @@ def plotDataset(folder, args):
     accelerometer = {"x": [], "y": [], "z": [], "t": [], "td": []}
     gyroscope = {"x": [], "y": [], "z": [], "t": [], "td": []}
     altitude = {"v": [], "t": [] }
+    cpu = {"v": [], "t": []}
     cameras = {}
 
     startTime = None
@@ -55,10 +58,11 @@ def plotDataset(folder, args):
                 continue
             sensor = measurement.get("sensor")
             frames = measurement.get("frames")
+            metrics = measurement.get("systemMetrics")
             if frames is None and 'frame' in measurement:
                 frames = [measurement['frame']]
                 frames[0]['cameraInd'] = 0
-            if sensor is None and frames is None: continue
+            if sensor is None and frames is None and metrics is None: continue
 
             if "time" in measurement:
                 if startTime is None:
@@ -111,6 +115,9 @@ def plotDataset(folder, args):
                     if "features" in f:
                         cameras[ind]["features"].append(len(f["features"]))
                     cameras[ind]["t"].append(t_corr)
+            elif metrics is not None and 'cpu' in metrics:
+                cpu["t"].append(t_corr)
+                cpu["v"].append(metrics['cpu'].get('systemTotalUsagePercent', 0))
 
         if nSkipped > 0:
             print('skipped %d lines' % nSkipped)
@@ -153,6 +160,9 @@ def plotDataset(folder, args):
               ind,
               len(camera["t"]) / (camera["t"][-1] - camera["t"][0]),
               len(camera["t"])))
+
+    if len(cpu["t"]) > 0:
+        plots.append(lambda s: addSubplot(s, cpu["t"], cpu["v"], "system load (%)", ymin=0, ymax=100))
 
     if len(accelerometer["t"]) > 0:
         print("accelerometer frequency:   {:.2f}Hz  (sample count {})".format(

@@ -23,17 +23,55 @@ class OpticalFlowComputer:
         self.frame_no = 0
         self.src = self._next()
         self.hsv = None
+        self.last_average_length = 0.0
+        self.skipped = 0
+        self.failureCount = 0
 
-    def next_avg_speed_flow(self):
+    def next_avg_speed_flow(self, args):
         target = self._next()
-        if target is None: return None
+        if target is None:
+            self.failureCount += 1
+            return self.last_average_length
+
         self.flow = cv.calcOpticalFlowFarneback(self.src, target, None, 0.5, 3, self.args.flow_winsize, 3, 5, 1.2, 0)
         #flow_scalar = np.mean(np.mean(self.flow, axis=0), axis=0)
+
         vector_lengths = np.linalg.norm(self.flow, axis=1)
         average_length = np.mean(vector_lengths)
 
         self.src = target
+        if not args.no_spike_removal:
+            if self.should_skip(average_length):
+                return self.last_average_length
+            self.skipped = 0
+        self.last_average_length = average_length
         return average_length
+
+    # Try filter out "spikes" from failed optical flow.
+    def should_skip(self, average_length):
+        # Limit effect of false positives.
+        MAX_SPIKE_WIDTH = 3
+        if self.skipped >= MAX_SPIKE_WIDTH:
+            self.skipped = 0
+            return False
+
+        min_level = 1.0
+        if average_length < min_level: return False
+        if average_length < self.last_average_length: return False
+
+        base = self.last_average_length
+        if self.last_average_length < min_level:
+            base = min_level
+
+        # If ratio of current and last good velocity is larger than the threshold,
+        # label the current as outlier and skip it.
+        s = average_length / base
+        if s < 1: s = 1 / s
+        SPIKE_THRESHOLD = 4.0
+        if s < SPIKE_THRESHOLD: return False
+
+        self.skipped += 1
+        return True
 
     def _next(self):
         while True:
@@ -189,16 +227,12 @@ def main(args):
         gyroSpeed = [gyroSpeed[i] for i, t in enumerate(gyroTimes) if t >= frameTimes[0] and t <= frameTimes[-1]]
         gyroTimes = [t for t in gyroTimes if t >= frameTimes[0] and t <= frameTimes[-1]]
 
-    failureCount = 0
     for i in range(len(frameTimes)):
-        avg_speed = leader_flow.next_avg_speed_flow()
-        if avg_speed == None:
-            avg_speed = 0.0
-            failureCount += 1
+        avg_speed = leader_flow.next_avg_speed_flow(args)
         frameSpeed.append(avg_speed)
         leader_flow.show_preview('leader')
-    if failureCount > 0:
-        print(f"Failed to compute speed for {failureCount}/{len(frameTimes)} frames.")
+    if leader_flow.failureCount > 0:
+        print(f"Failed to compute speed for {leader_flow.failureCount}/{len(frameTimes)} frames.")
 
     if len(gyroSpeed) == 0:
         print("No gyroscope data to plot.")
@@ -295,6 +329,7 @@ if __name__ == '__main__':
     p.add_argument('--resize_width', type=int, default=200)
     p.add_argument('--output', help="data.jsonl with frame timestamp shifted to match gyroscope timestamps")
     p.add_argument('--maxOffset', help="Maximum offset between gyroscope and frame times in seconds", type=float, default=5.0)
+    p.add_argument('--no_spike_removal', action='store_true')
 
     args = p.parse_args()
     main(args)

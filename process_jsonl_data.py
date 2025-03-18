@@ -32,10 +32,18 @@ def probeCodec(inputFile):
     codec = subprocess.check_output("ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 {}".format(inputFile), shell=True).decode('utf-8').strip()
     return codec
 
-def handleVideo(args, inputVideo, outputFolder):
+def handleVideo(args, inputVideo, outputFolder, videoInd):
     # Note: these are set in crop() if using --t0 or --t1.
     n0 = args.skipStartFramesInd
     n1 = args.skipEndFramesInd
+
+    if args.skipFramesInVideo:
+        tokens = args.skipFramesInVideo.split(",")
+        extra = int(tokens[videoInd])
+        print("Skipping {} extra frames in {}".format(extra, inputVideo))
+        if n0 is None: n0 = 0
+        n0 += extra
+
     if n0 and n1: assert(n1 > n0)
     n0value = n0 if n0 else 0
 
@@ -183,8 +191,8 @@ def main(args):
     else:
         videos = findVideos(args.input)
 
-    for fileName in videos:
-        handleVideo(args, str(args.input / fileName), args.output)
+    for i, fileName in enumerate(videos):
+        handleVideo(args, str(args.input / fileName), args.output, i)
 
     for file in ["calibration.json", "vio_config.yaml"]:
         inputPath = args.input / file
@@ -205,6 +213,7 @@ if __name__ == '__main__':
     p.add_argument("--downscale", help="Factor to downscale videos by.")
     p.add_argument("--crf", type=int, default=15, help="h264 encoding quality value (0=lossless, 17=visually lossless)")
     p.add_argument("--videos", help="List videos to convert comma-separated, otherwise will use all from the input folder")
+    p.add_argument("--skipFramesInVideo", help="Comma-separated extra frames to skip per input video. Can be used to adjust stereo sync.")
     args = p.parse_args()
 
     assert(args.t0 is None or args.skipStartFramesInd is None)

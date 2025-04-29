@@ -102,6 +102,7 @@ def plotDataset(folder, args):
                     altitude["t"].append(t_corr)
             elif frames is not None:
                 for f in frames:
+                    if f.get("missingBitmap", False): continue
                     ind = f["cameraInd"]
                     if cameras.get(ind) is None:
                         cameras[ind] = {"diff": [0], "t": [] }
@@ -138,14 +139,13 @@ def plotDataset(folder, args):
     for ind in cameras.keys():
         camera = cameras[ind]
         order = np.argsort(camera['diff'])[::-1]
-        plotkwargs=dict(
+        plotkwargs = dict(
             plottype='scatter',
             color=np.array([(1, 0, 0) if c <= 0 else (0.6, 0.6, 1) for c in camera["diff"]])[order],
             s=6
         )
         t = np.array(camera["t"])[order]
         y = np.array(camera["diff"])[order]
-
         plots.append(
             lambda s, t=t, y=y, ind=ind, plotkwargs=plotkwargs: addSubplot(s, t, y, "frame time diff #{} (ms)".format(ind), **plotkwargs)
         )

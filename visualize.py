@@ -124,9 +124,9 @@ def plotDataset(folder, args):
             print('skipped %d lines' % nSkipped)
 
     plots = [
-        lambda s: addSubplot(s, accelerometer["t"], [accelerometer[c] for c in 'xyz'], "acc (m/s)"),
+        lambda s: addSubplot(s, accelerometer["t"], [accelerometer[c] for c in 'xyz'], "acc (m/s^2)"),
         lambda s: addSubplot(s, accelerometer["t"], accelerometer["td"], "acc time diff (ms)", "."),
-        lambda s: addSubplot(s, gyroscope["t"], [gyroscope[c] for c in 'xyz'], "gyro (m/s)"),
+        lambda s: addSubplot(s, gyroscope["t"], [gyroscope[c] for c in 'xyz'], "gyro (rad/s)"),
         lambda s: addSubplot(s, gyroscope["t"], gyroscope["td"], "gyro time diff (ms)", ".")
     ]
 

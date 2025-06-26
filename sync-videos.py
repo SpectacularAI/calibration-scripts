@@ -91,7 +91,7 @@ def minimize_error(flow1, flow2, max_offset):
         # print(result_y[i])
 
     offset = int(result_x[np.argmin(result_y)])
-    print(offset)
+    print("Offset:", offset)
 
     return offset, (result_x, result_y), shift(offset)
 
@@ -163,8 +163,6 @@ if __name__ == '__main__':
 
     sync1 = sync_command_ffmpeg(args.leader_video, skip1)
     sync2 = sync_command_ffmpeg(args.follower_video, skip2)
-    print(sync1)
-    print(sync2)
 
     if not args.dry_run:
         import json, os, threading

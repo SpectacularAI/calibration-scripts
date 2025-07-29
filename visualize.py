@@ -104,15 +104,15 @@ def plotDataset(folder, args):
                     ind = f["cameraInd"]
                     if cameras.get(ind) is None:
                         cameras[ind] = {"diff": [0], "t": [] }
-                        if "features" in f:
+                        if "features" in f and f["features"] != None:
                             cameras[ind]["features"] = []
                     else:
                         diff = measurement["time"] - cameras[ind]["t"][-1]
                         # print("Time {}, Diff {}".format(measurement["time"], diff))
                         cameras[ind]["diff"].append(diff * 1000.)
 
-                    if "features" in f:
-                        cameras[ind]["features"].append(len(f["features"]))
+                    if "features" in f and cameras[ind].get("features", None) != None:
+                        cameras[ind]["features"].append(len(f["features"]) if f["features"] else 0)
                     cameras[ind]["t"].append(t_corr)
             elif metrics is not None and 'cpu' in metrics:
                 cpu["t"].append(t_corr)

@@ -67,14 +67,14 @@ def handleVideo(args, inputVideo, outputFolder, videoInd):
     output = "{}/{}".format(outputFolder, output)
     # Tested these two filter to remove exactly correct number of frames, counting them
     # from the resulting video using `ffmpeg`. VIO also works well so the start index should be correct.
-    if n0 and n0 >= 1: filters.append("select=gt(n\, {}),setpts=PTS-STARTPTS".format(n0 - 1))
-    if n1: filters.append("select=lt(n\, {})".format(n1 - n0value + 1))
+    if n0 and n0 >= 1: filters.append("select=gt(n\\, {}),setpts=PTS-STARTPTS".format(n0 - 1))
+    if n1: filters.append("select=lt(n\\, {})".format(n1 - n0value + 1))
 
     fps = probeFps(inputVideo)
     assert(fps > 0)
     fpsSub = fps
     if args.subsample:
-        filters.append("select=not(mod(n\,{}))".format(args.subsample))
+        filters.append("select=not(mod(n\\,{}))".format(args.subsample))
         fpsSub = fps / args.subsample
     if args.downscale: filters.append("scale=iw/{}:ih/{}".format(args.downscale, args.downscale))
 

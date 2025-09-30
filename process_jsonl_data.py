@@ -57,12 +57,10 @@ def handleVideo(args, inputVideo, outputFolder, videoInd):
         codecArgs = "-c:v libx264 -crf {}{}".format(args.crf, preset)
         filters.append("format=yuv420p")
 
-    if "data2" in inputVideo:
-        output = "data2.{}".format(container)
-    elif "data3" in inputVideo:
-        output = "data3.{}".format(container)
-    elif not "data." in inputVideo:
-        raise Exception(f"Unexpected video name: {inputVideo}")
+    for num in range(2, 9):
+        if f"data{num}" in inputVideo:
+            output = f"data{num}.{container}"
+            break
     else:
         output = "data.{}".format(container)
 

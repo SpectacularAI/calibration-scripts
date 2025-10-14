@@ -67,8 +67,6 @@ class RayApp:
                  print(f"Skipped {self.vio_output_counter} outputs...")
             return
 
-        print(f"\nProcessing VIO output #{self.vio_output_counter - 1}.")
-
         primary_frame = None
         for frame in frames:
             if frame.image is not None:
@@ -105,7 +103,7 @@ class RayApp:
         print("Press any key in the image window to continue...")
         cv2.imshow(window_name, display_image)
         cv2.waitKey(0)
-        if not self.args.show_and_confirm_point:
+        if self.args.show_and_confirm_point:
             cv2.destroyAllWindows()
         
         self.ray_computed = True # Mark as done to prevent re-triggering
@@ -119,23 +117,41 @@ class RayApp:
         if ray is None:
             print("pixelToRay failed (outside valid FoV?)")
             return
-            
-        camToImu = self.imuToCam[:3,:3].transpose()
-        rayImu = camToImu @ [ray.x, ray.y, ray.z]
 
+        camToImu = self.imuToCam[:3,:3].transpose()
+        self.rayImu = camToImu @ [ray.x, ray.y, ray.z]
+
+        if self.args.use_gravity or self.args.store_imu_to_output_frd:
+            camToWorld = frame.cameraPose.getCameraToWorldMatrix()
+            imuToWorld = camToWorld[:3, :3] @ self.imuToCam[:3,:3]
+            worldToImu = imuToWorld[:3, :3].transpose()
+            downVectorWorld = [0,0,-1]
+            downVectorImu = worldToImu @ downVectorWorld
+            rightVectorImu = np.cross(downVectorImu, self.rayImu)
+            forwardVectorImu = np.cross(rightVectorImu, downVectorImu)
+
+            self.frd = np.eye(4)
+            self.frd[:3,:3] = np.hstack([v[:, np.newaxis] / np.linalg.norm(v) for v in [forwardVectorImu, rightVectorImu, downVectorImu]])
+            if self.args.use_gravity:
+                self.rayImu = self.frd[:3, 0]
+
+    def displayResults(self):
         print("\n" + "="*45)
         print("Camera Ray in World Coordinates")
         print("="*45)
         print(f"Original Pixel Coords: {clicked_point}")
-        print(f"Ray Direction (IMU):   {np.array2string(rayImu, precision=4)}")
+        print(f"Ray Direction (IMU):   {np.array2string(self.rayImu, precision=4)}")
         print("="*45)
         print('Updated calibration.json:\n')
-        self.calibration_json['imuForward'] = rayImu.tolist()
+        self.calibration_json['imuForward'] = self.rayImu.tolist()
+        if self.args.store_imu_to_output_frd:
+            self.calibration_json['imuToOutput'] = self.frd.tolist()
         print(json.dumps(self.calibration_json, indent=2))
 
     def run(self):
         self.replay.runReplay()
         print("\nReplay finished.")
+        self.displayResults()
 
 
 def main():
@@ -159,6 +175,15 @@ def main():
         '-c', '--show_and_confirm_point',
         action='store_true',
         help='Show selected point on the image and confirm it with SPACE')
+    parser.add_argument(
+        '-g', '--use_gravity',
+        action='store_true',
+        help='Use gravity direction to refine the result')
+    parser.add_argument(
+        '-frd', '--store_imu_to_output_frd',
+        action='store_true',
+        help='Compute approximate IMU-to-output in the Front-Right-Down convention using gravity')
+
     args = parser.parse_args()
 
     app = RayApp(args)

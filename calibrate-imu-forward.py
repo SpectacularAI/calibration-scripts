@@ -12,32 +12,16 @@ import json
 
 clicked_point = None
 
-def mouse_callback(event, x, y, flags, param):
+def mouse_callback(event, x, y, *args, **kwargs):
     global clicked_point
     if event == cv2.EVENT_LBUTTONDOWN:
-        zoom_factor = param['zoom_factor']
-        
-        original_x = int(x / zoom_factor)
-        original_y = int(y / zoom_factor)
-        
-        clicked_point = (original_x, original_y)
-        
-        print(f"Clicked at ({x}, {y}) on zoomed image.")
-        print(f"   -> Corresponding pixel on original image: ({original_x}, {original_y})")
-        
-        if param['confirm']:
-            image = param['image']
-            window_name = param['window_name']
-            cv2.circle(image, (x, y), 5, (0, 255, 0), 1)
-            cv2.imshow(window_name, image)
-        else:
-            cv2.destroyAllWindows()
+        clicked_point = (x, y)
 
 class RayApp:
     def __init__(self, args):
         self.args = args
         self.vio_output_counter = 0
-        self.ray_computed = False
+        self.should_quit = False
         self.replay = spectacularAI.Replay(
             args.sdk_recording_path,
             ignoreFolderConfiguration=True,
@@ -52,11 +36,11 @@ class RayApp:
         self.replay.setExtendedOutputCallback(self.on_vio_output)
         self.replay.setPlaybackSpeed(-1)
 
-    def on_vio_output(self, vio_output, frames):
+    def on_vio_output(self, _, frames):
         """
         Callback function that gets called for each VIO output from the replay.
         """
-        if self.ray_computed:
+        if self.should_quit:
             return
 
         self.vio_output_counter += 1
@@ -91,29 +75,46 @@ class RayApp:
 
         window_name = "Select a point, then press any key"
         cv2.namedWindow(window_name)
-        callback_params = {
-            'image': display_image,
-            'window_name': window_name,
-            'zoom_factor': zoom_factor,
-            'confirm': self.args.show_and_confirm_point,
-        }
-        cv2.setMouseCallback(window_name, mouse_callback, callback_params)
+        cv2.setMouseCallback(window_name, mouse_callback)
 
         print("Please click on a point in the image to select it.")
-        print("Press any key in the image window to continue...")
         cv2.imshow(window_name, display_image)
-        cv2.waitKey(0)
-        if self.args.show_and_confirm_point:
-            cv2.destroyAllWindows()
-        
-        self.ray_computed = True # Mark as done to prevent re-triggering
+        self.original_point = None
+        while True:
+            global clicked_point
+            key = cv2.waitKey(1) & 0xFF
+            if key == 27 or key == ord("q"):
+                self.should_quit = True
+                return
+            elif key != 0xFF:
+                if self.args.show_and_confirm_point and self.original_point is not None:
+                    print('selection confirmed')
+                    break
 
-        if clicked_point is None:
+            if clicked_point is not None:
+                x, y = clicked_point
+
+                self.original_point = (x / zoom_factor, y / zoom_factor)
+                print(f"Clicked at ({x}, {y}) on zoomed image.")
+                print(f"   -> Corresponding pixel on original image: ({self.original_point[0]}, {self.original_point[1]})")
+
+                if self.args.show_and_confirm_point:
+                    image_with_point = display_image * 1
+                    cv2.circle(image_with_point, (x, y), 5, (0, 255, 0), 1)
+                    cv2.imshow(window_name, image_with_point)
+                    clicked_point = None
+                    print("Press any key in the image window to continue... (or select a new point)")
+                else:
+                    break
+        
+        self.should_quit = True # Mark as done to prevent re-triggering
+
+        if self.original_point is None:
             print("No point was selected. Exiting.")
             return
             
         main_camera = frame.cameraPose.camera
-        ray = main_camera.pixelToRay(spectacularAI.PixelCoordinates(*clicked_point))
+        ray = main_camera.pixelToRay(spectacularAI.PixelCoordinates(*self.original_point))
         if ray is None:
             print("pixelToRay failed (outside valid FoV?)")
             return
@@ -135,11 +136,13 @@ class RayApp:
             if self.args.use_gravity:
                 self.rayImu = self.frd[:3, 0]
 
+        self.displayResults()
+
     def displayResults(self):
         print("\n" + "="*45)
         print("Camera Ray in World Coordinates")
         print("="*45)
-        print(f"Original Pixel Coords: {clicked_point}")
+        print(f"Original Pixel Coords: {self.original_point}")
         print(f"Ray Direction (IMU):   {np.array2string(self.rayImu, precision=4)}")
         print("="*45)
         print('Updated calibration.json:\n')
@@ -150,9 +153,6 @@ class RayApp:
 
     def run(self):
         self.replay.runReplay()
-        print("\nReplay finished.")
-        self.displayResults()
-
 
 def main():
     parser = argparse.ArgumentParser(

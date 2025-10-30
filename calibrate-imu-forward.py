@@ -1,6 +1,8 @@
 """
 Calibrate imuForward by replaying an SDK recording and prompting the user to
-click on a point that horizontally corresponds to the forward direction."
+click on a point that horizontally corresponds to the forward direction.
+Optionally also use the gravity direction to estimate a an IMU-to-output
+rotation matrix in the Front-Right-Down convention.
 """
 import spectacularAI
 import cv2
@@ -122,7 +124,7 @@ class RayApp:
         camToImu = self.imuToCam[:3,:3].transpose()
         self.rayImu = camToImu @ [ray.x, ray.y, ray.z]
 
-        if self.args.use_gravity or self.args.store_imu_to_output_frd:
+        if self.args.use_gravity:
             camToWorld = frame.cameraPose.getCameraToWorldMatrix()
             imuToWorld = camToWorld[:3, :3] @ self.imuToCam[:3,:3]
             worldToImu = imuToWorld[:3, :3].transpose()
@@ -133,8 +135,7 @@ class RayApp:
 
             self.frd = np.eye(4)
             self.frd[:3,:3] = np.hstack([v[:, np.newaxis] / np.linalg.norm(v) for v in [forwardVectorImu, rightVectorImu, downVectorImu]]).transpose()
-            if self.args.use_gravity:
-                self.rayImu = self.frd[:3, 0]
+            self.rayImu = self.frd[:3, 0]
 
         self.displayResults()
 
@@ -147,7 +148,7 @@ class RayApp:
         print("="*45)
         print('Updated calibration.json:\n')
         self.calibration_json['imuForward'] = self.rayImu.tolist()
-        if self.args.store_imu_to_output_frd:
+        if self.args.use_gravity:
             self.calibration_json['imuToOutput'] = self.frd.tolist()
         print(json.dumps(self.calibration_json, indent=2))
 
@@ -178,11 +179,7 @@ def main():
     parser.add_argument(
         '-g', '--use_gravity',
         action='store_true',
-        help='Use gravity direction to refine the result')
-    parser.add_argument(
-        '-frd', '--store_imu_to_output_frd',
-        action='store_true',
-        help='Compute approximate IMU-to-output in the Front-Right-Down convention using gravity')
+        help='Use gravity direction to refine the result and compute a Front-Right-Down IMU-to-output matrix.')
 
     args = parser.parse_args()
 

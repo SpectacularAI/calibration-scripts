@@ -132,7 +132,7 @@ class RayApp:
             forwardVectorImu = np.cross(rightVectorImu, downVectorImu)
 
             self.frd = np.eye(4)
-            self.frd[:3,:3] = np.hstack([v[:, np.newaxis] / np.linalg.norm(v) for v in [forwardVectorImu, rightVectorImu, downVectorImu]])
+            self.frd[:3,:3] = np.hstack([v[:, np.newaxis] / np.linalg.norm(v) for v in [forwardVectorImu, rightVectorImu, downVectorImu]]).transpose()
             if self.args.use_gravity:
                 self.rayImu = self.frd[:3, 0]
 

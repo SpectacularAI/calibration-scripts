@@ -30,13 +30,15 @@ def read_imu_data(filename, timestampRange, sensor):
     with open(filename, 'r') as file:
         for line in file:
             data = json.loads(line)
-            if "sensor" not in data: continue
-            if data["sensor"]["type"] == sensor:
+            if "time" not in data: continue
+            time = data["time"]
+            if timestampRange and (time < start or time > end): continue
+            if "sensor" in data and data["sensor"]["type"] == sensor:
                 values = data["sensor"]["values"]
-                time = data["time"]
-                if timestampRange and (time < start or time > end): continue
                 imuData.append([time, values[0], values[1], values[2]])
-
+            elif "pose" in data and data["pose"]["name"] == "groundTruth" and "angularVelocity" in data["pose"]:
+                av = data["pose"]["angularVelocity"]
+                imuData.append([time, av["x"], av["y"], av["z"]])
     return np.array(imuData)
 
 def read_imu1_to_imu2(filename):
@@ -286,6 +288,9 @@ def synchronizeImus():
     else:
         dataImu1 = read_imu_data(args.imu1, args.timestamp_range, sensor)
     dataImu2 = read_imu_data(args.imu2, args.timestamp_range, sensor)
+    if len(dataImu1) == 0: raise Exception(f"No IMU data found in {args.imu1}")
+    if len(dataImu2) == 0: raise Exception(f"No IMU data found in {args.imu2}")
+
     timeRangeImu2 = (dataImu2[0][0], dataImu2[-1][0]) if args.crop else None
 
     if args.imu1_to_imu2:

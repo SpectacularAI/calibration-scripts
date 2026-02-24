@@ -11,6 +11,8 @@ import pathlib
 import shutil
 import subprocess
 
+RAW_PIXEL_FORMAT = "gray"
+
 def slurpJsonl(path):
     jsonls = []
     with open(path) as f:
@@ -21,7 +23,7 @@ def slurpJsonl(path):
     return jsonls
 
 def findVideos(folder):
-    FORMATS = ['avi', 'mp4', 'mov', 'mkv']
+    FORMATS = ['avi', 'mp4', 'mov', 'mkv', 'ts', 'bin']
     return [x for x in os.listdir(folder) if x.split('.')[-1] in FORMATS]
 
 def probeFps(inputFile):
@@ -47,9 +49,11 @@ def handleVideo(args, inputVideo, outputFolder, videoInd):
     if n0 and n1: assert(n1 > n0)
     n0value = n0 if n0 else 0
 
+    isRaw = inputVideo.endswith(".bin")
+
     container = "mkv"
     filters = []
-    if probeCodec(inputVideo) == "ffv1":
+    if not isRaw and probeCodec(inputVideo) == "ffv1":
         # Lossless 16bit codec.
         codecArgs = "-vcodec ffv1"
     else:
@@ -70,16 +74,26 @@ def handleVideo(args, inputVideo, outputFolder, videoInd):
     if n0 and n0 >= 1: filters.append("select=gt(n\\, {}),setpts=PTS-STARTPTS".format(n0 - 1))
     if n1: filters.append("select=lt(n\\, {})".format(n1 - n0value + 1))
 
-    fps = probeFps(inputVideo)
+    if isRaw or args.fps:
+        fps = args.fps
+    else:
+        fps = probeFps(inputVideo)
     assert(fps > 0)
+
     fpsSub = fps
     if args.subsample:
         filters.append("select=not(mod(n\\,{}))".format(args.subsample))
         fpsSub = fps / args.subsample
     if args.downscale: filters.append("scale=iw/{}:ih/{}".format(args.downscale, args.downscale))
 
-    cmd = "ffmpeg -r {fps} -i {inputVideo} -r {fpsSub} -start_number 0 {codecArgs} -vf \"{filters}\" {output}".format(
-        inputVideo=inputVideo,
+    if isRaw:
+        inputArgs = "-f rawvideo -pixel_format {} -video_size {} -i {}".format(
+            RAW_PIXEL_FORMAT, args.videoSize, inputVideo)
+    else:
+        inputArgs = "-i {}".format(inputVideo)
+
+    cmd = "ffmpeg -r {fps} {inputArgs} -r {fpsSub} -start_number 0 {codecArgs} -vf \"{filters}\" {output}".format(
+        inputArgs=inputArgs,
         fps=fps,
         fpsSub=fpsSub,
         codecArgs=codecArgs,
@@ -184,12 +198,7 @@ def main(args):
             f.write(json.dumps(j, separators=(',', ':')))
             f.write("\n")
 
-    if args.videos is not None:
-        videos = args.videos.split(",")
-    else:
-        videos = findVideos(args.input)
-
-    for i, fileName in enumerate(videos):
+    for i, fileName in enumerate(args.videoList):
         handleVideo(args, str(args.input / fileName), args.output, i)
 
     for file in ["calibration.json", "vio_config.yaml"]:
@@ -212,9 +221,23 @@ if __name__ == '__main__':
     p.add_argument("--crf", type=int, default=15, help="h264 encoding quality value (0=lossless, 17=visually lossless)")
     p.add_argument("--videos", help="List videos to convert comma-separated, otherwise will use all from the input folder")
     p.add_argument("--skipFramesInVideo", help="Comma-separated extra frames to skip per input video. Can be used to adjust stereo sync.")
+    p.add_argument("--fps", type=float, help="Video FPS. Required for .bin raw videos..")
+    p.add_argument("--videoSize", help="Video resolution WxH. Required for .bin raw videos.")
     args = p.parse_args()
 
     assert(args.t0 is None or args.skipStartFramesInd is None)
     assert(args.t1 is None or args.skipEndFramesInd is None)
+
+    if args.videos is not None:
+        args.videoList = args.videos.split(",")
+    else:
+        args.videoList = findVideos(args.input)
+
+    hasBin = any(v.endswith(".bin") for v in args.videoList)
+    if hasBin:
+        if not args.fps:
+            p.error("--fps is required when video extension is .bin")
+        if not args.videoSize:
+            p.error("--videoSize is required when video extension is .bin")
 
     main(args)

@@ -156,7 +156,7 @@ if __name__ == '__main__':
         if skip_n_frames == 0:
             return 'cp %s %s' % (fn, out_fn)
         else:
-            return "ffmpeg -i %s -vf 'select=gte(n\,%d)' %s %s" % (fn, skip_n_frames, args.ffmpeg_flags, out_fn)
+            return "ffmpeg -i %s -vf 'select=gte(n\\,%d)' %s %s" % (fn, skip_n_frames, args.ffmpeg_flags, out_fn)
 
     skip1 = args.skip_first_n_frames + max(optimal_offset, 0)
     skip2 = args.skip_first_n_frames + max(-optimal_offset, 0)

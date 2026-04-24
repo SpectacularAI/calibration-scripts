@@ -34,7 +34,7 @@ def probeCodec(inputFile):
     codec = subprocess.check_output("ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 {}".format(inputFile), shell=True).decode('utf-8').strip()
     return codec
 
-def handleVideo(args, inputVideo, outputFolder, videoInd):
+def handleVideo(args, inputVideo, outputFolder, videoInd, missingFrames):
     # Note: these are set in crop() if using --t0 or --t1.
     n0 = args.skipStartFramesInd
     n1 = args.skipEndFramesInd
@@ -61,17 +61,22 @@ def handleVideo(args, inputVideo, outputFolder, videoInd):
         codecArgs = "-c:v libx264 -crf {}{}".format(args.crf, preset)
         filters.append("format=yuv420p")
 
+    cameraInd = 0
     for num in range(2, 9):
         if f"data{num}" in inputVideo:
             output = f"data{num}.{container}"
+            cameraInd = num - 1
             break
     else:
         output = "data.{}".format(container)
 
+    # For each frame that `data.jsonl` marks as not having been recorded to the video, we must skip one frame less.
+    skip = 0
+    if cameraInd < len(missingFrames):
+        skip = missingFrames[cameraInd]
+
     output = "{}/{}".format(outputFolder, output)
-    # Tested these two filter to remove exactly correct number of frames, counting them
-    # from the resulting video using `ffmpeg`. VIO also works well so the start index should be correct.
-    if n0 and n0 >= 1: filters.append("select=gt(n\\, {}),setpts=PTS-STARTPTS".format(n0 - 1))
+    if n0 and n0 >= 1: filters.append("select=gt(n\\, {}),setpts=PTS-STARTPTS".format(n0 - 1 - skip))
     if n1: filters.append("select=lt(n\\, {})".format(n1 - n0value + 1))
 
     if isRaw or args.fps:
@@ -115,6 +120,8 @@ def crop(args, jsonls):
     searchingEnd = args.t1 is not None
     searchingEndInd = args.skipEndFramesInd is not None
 
+    missingFrames = []
+
     for j in jsonls:
         # With this, the relative timestamps are video timestamps which are
         # easy to find using a video player.
@@ -148,6 +155,12 @@ def crop(args, jsonls):
             searchingEndInd = False
             skipEndTime = float(j["time"])
 
+        if searchingStart:
+            for i, frame in enumerate(j["frames"]):
+                if "missingBitmap" in frame and frame["missingBitmap"]:
+                    while i >= len(missingFrames): missingFrames.append(0)
+                    missingFrames[i] += 1
+
     # Remove triggers.
     jsonls = [j for j in jsonls if not "trigger" in j]
 
@@ -162,7 +175,7 @@ def crop(args, jsonls):
     if skipEndTime:
         jsonls = [j for j in jsonls if j["time"] <= skipEndTime]
 
-    return jsonls
+    return jsonls, missingFrames
 
 def subsample(args, jsonls):
     assert(args.subsample > 1)
@@ -184,11 +197,13 @@ def main(args):
     jsonls = slurpJsonl(args.input / "data.jsonl")
     jsonls = sorted(jsonls, key=lambda row: row["time"])
 
+    missingFrames = []
+
     # These are difficult to implement together, support only one at a time. You
     # can always run the script again.
     if args.t0 or args.t1 or args.skipStartFramesInd or args.skipEndFramesInd:
         assert(not args.subsample)
-        jsonls = crop(args, jsonls)
+        jsonls, missingFrames = crop(args, jsonls)
     elif args.subsample:
         jsonls = subsample(args, jsonls)
 
@@ -199,7 +214,7 @@ def main(args):
             f.write("\n")
 
     for i, fileName in enumerate(args.videoList):
-        handleVideo(args, str(args.input / fileName), args.output, i)
+        handleVideo(args, str(args.input / fileName), args.output, i, missingFrames)
 
     for file in ["calibration.json", "vio_config.yaml"]:
         inputPath = args.input / file
